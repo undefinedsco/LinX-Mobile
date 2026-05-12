@@ -32,17 +32,23 @@ struct RootView: View {
                     onLogin: {}
                 )
             case .authenticated:
-                if chatModel.isBootstrapping {
-                    ProgressView("Syncing your Pod…")
-                } else {
-                    ChatScene(viewModel: chatModel) {
-                        chatModel.resetForLogout()
-                        authController.logout()
+                ChatScene(viewModel: chatModel) {
+                    chatModel.resetForLogout()
+                    authController.logout()
+                }
+                .task {
+                    if chatModel.needsBootstrap {
+                        await chatModel.bootstrapIfNeeded()
                     }
-                    .task {
-                        if chatModel.needsBootstrap {
-                            await chatModel.bootstrapIfNeeded()
-                        }
+                }
+                .overlay(alignment: .top) {
+                    if chatModel.isBootstrapping {
+                        ProgressView("Syncing your Pod…")
+                            .font(.footnote.weight(.medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(.top, 10)
                     }
                 }
             }

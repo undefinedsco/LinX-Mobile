@@ -25,6 +25,13 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(url.absoluteString, "https://alice.example/")
     }
 
+    func testChatSPARQLEndpointTargetsConcreteChatContainer() throws {
+        let baseURL = try PodStoragePaths.podBaseURL(forWebID: "https://alice.example/profile/card#me")
+        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+
+        XCTAssertEqual(endpoint.absoluteString, "https://alice.example/.data/chat/cli-default/-/sparql")
+    }
+
     func testPreferredModelSelection() throws {
         let models = [
             RuntimeModelSummary(id: "other-model"),

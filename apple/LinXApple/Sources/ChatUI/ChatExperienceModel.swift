@@ -16,6 +16,7 @@ final class ChatExperienceModel: ObservableObject {
     @Published private(set) var activeModelID = AppConstants.defaultModelID
     @Published private var bootstrapState: BootstrapState = .idle
     @Published private(set) var isSending = false
+    @Published private(set) var isLoadingMessages = false
     @Published var isShowingThreadSheet = false
     @Published var errorMessage: String?
 
@@ -25,6 +26,8 @@ final class ChatExperienceModel: ObservableObject {
     private let runtimeService: LinxOpenAIChatService
 
     private var loadedMessageLimit = AppConstants.pageSize
+    private var hasLoadedAllMessages = true
+    private var activeMessageLoadID = UUID()
     private var sendTask: Task<Void, Never>?
 
     init(authController: AuthSessionController) {
@@ -49,6 +52,10 @@ final class ChatExperienceModel: ObservableObject {
 
     var canRetryBootstrap: Bool {
         bootstrapState == .failed && authController.isAuthenticated
+    }
+
+    var canLoadMoreMessages: Bool {
+        selectedThread != nil && hasLoadedAllMessages == false && isLoadingMessages == false
     }
 
     var exyteMessages: [Message] {
@@ -89,10 +96,13 @@ final class ChatExperienceModel: ObservableObject {
     func resetForLogout() {
         sendTask?.cancel()
         sendTask = nil
+        invalidateMessageLoads()
         threads = []
         messages = []
         selectedThread = nil
         loadedMessageLimit = AppConstants.pageSize
+        hasLoadedAllMessages = true
+        isLoadingMessages = false
         bootstrapState = .idle
         isSending = false
         errorMessage = nil
@@ -102,15 +112,22 @@ final class ChatExperienceModel: ObservableObject {
 
     func newChat() {
         sendTask?.cancel()
+        invalidateMessageLoads()
         selectedThread = nil
         messages = []
         loadedMessageLimit = AppConstants.pageSize
+        hasLoadedAllMessages = true
+        isLoadingMessages = false
         isShowingThreadSheet = false
     }
 
     func selectThread(_ thread: LinxThreadSummary) {
+        invalidateMessageLoads()
         selectedThread = thread
+        messages = []
         loadedMessageLimit = AppConstants.pageSize
+        hasLoadedAllMessages = false
+        isLoadingMessages = false
         isShowingThreadSheet = false
 
         Task {
@@ -120,7 +137,7 @@ final class ChatExperienceModel: ObservableObject {
 
     func enqueueSend(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false, isSending == false else { return }
+        guard trimmed.isEmpty == false, isSending == false, bootstrapState != .running else { return }
 
         sendTask = Task {
             await executeSend(text: trimmed)
@@ -132,7 +149,7 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     func loadMoreMessages() {
-        guard selectedThread != nil else { return }
+        guard canLoadMoreMessages else { return }
         loadedMessageLimit += AppConstants.pageSize
         Task {
             await loadMessagesForCurrentThread()
@@ -189,22 +206,37 @@ final class ChatExperienceModel: ObservableObject {
         selectedThread = createdThread
         messages = []
         threads.insert(createdThread, at: 0)
+        hasLoadedAllMessages = true
+        isLoadingMessages = false
+        invalidateMessageLoads()
         return createdThread
     }
 
     private func loadMessagesForCurrentThread() async {
         guard let selectedThread else { return }
+        let threadID = selectedThread.id
+        let requestedLimit = loadedMessageLimit
+        let loadID = UUID()
+        activeMessageLoadID = loadID
+        isLoadingMessages = true
 
         do {
             let webID = try authController.webID()
             let loaded = try await repository.loadMessages(
                 webID: webID,
-                threadID: selectedThread.id,
-                limit: loadedMessageLimit
+                threadID: threadID,
+                limit: requestedLimit
             )
-            messages = loaded
+            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
+            hasLoadedAllMessages = loaded.count < requestedLimit
+            messages = mergedMessages(loaded, preserving: messages, threadID: threadID)
         } catch {
+            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
             errorMessage = error.localizedDescription
+        }
+
+        if activeMessageLoadID == loadID {
+            isLoadingMessages = false
         }
     }
 
@@ -223,7 +255,33 @@ final class ChatExperienceModel: ObservableObject {
 
         if selectFirstIfNeeded, let first = threads.first {
             selectedThread = first
+            hasLoadedAllMessages = false
             await loadMessagesForCurrentThread()
+        }
+    }
+
+    private func invalidateMessageLoads() {
+        activeMessageLoadID = UUID()
+    }
+
+    private func mergedMessages(
+        _ loaded: [LinxChatMessage],
+        preserving current: [LinxChatMessage],
+        threadID: String
+    ) -> [LinxChatMessage] {
+        var seenIDs = Set(loaded.map(\.id))
+        var merged = loaded
+
+        for message in current where message.threadID == threadID && seenIDs.contains(message.id) == false {
+            seenIDs.insert(message.id)
+            merged.append(message)
+        }
+
+        return merged.sorted {
+            if $0.createdAt == $1.createdAt {
+                return $0.id < $1.id
+            }
+            return $0.createdAt < $1.createdAt
         }
     }
 

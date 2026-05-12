@@ -17,7 +17,7 @@ struct PodChatRepository {
     func listThreads(webID: String, limit: Int = AppConstants.pageSize) async throws -> [LinxThreadSummary] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let chatURI = PodStoragePaths.chatURI(baseURL: baseURL, chatID: AppConstants.defaultChatID)
-        let endpoint = PodStoragePaths.chatRootContainer(baseURL: baseURL).appendingPathComponent("-/sparql", isDirectory: false)
+        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
 
         let response = try await client.query(endpoint: endpoint, sparql: PodSPARQLBuilder.threadsQuery(chatURI: chatURI, limit: limit))
         return response.results.bindings.compactMap { binding in
@@ -47,7 +47,7 @@ struct PodChatRepository {
     ) async throws -> [LinxChatMessage] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let threadURI = PodStoragePaths.threadURI(baseURL: baseURL, chatID: AppConstants.defaultChatID, threadID: threadID)
-        let endpoint = PodStoragePaths.chatRootContainer(baseURL: baseURL).appendingPathComponent("-/sparql", isDirectory: false)
+        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
 
         let response = try await client.query(
             endpoint: endpoint,

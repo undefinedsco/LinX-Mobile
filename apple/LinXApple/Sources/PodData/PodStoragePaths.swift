@@ -47,6 +47,11 @@ enum PodStoragePaths {
             .appendingPathComponent(LinxSharedContract.Resource.chatIndexFileName, isDirectory: false)
     }
 
+    static func chatSPARQLEndpoint(baseURL: URL, chatID: String) -> URL {
+        chatContainer(baseURL: baseURL, chatID: chatID)
+            .appendingPathComponent("-/sparql", isDirectory: false)
+    }
+
     static func agentsContainer(baseURL: URL) -> URL {
         dataContainer(baseURL: baseURL)
             .appendingPathComponent(LinxSharedContract.Resource.agentsContainerName, isDirectory: true)
