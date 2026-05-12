@@ -40,7 +40,7 @@ struct LinxModelCatalogClient {
             runtimeBaseURL: runtimeBaseURL,
             version: runtimeVersion,
             path: "models"
-        ))
+        ), timeoutInterval: AppConstants.runtimeRequestTimeout)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

@@ -3,11 +3,18 @@ import Foundation
 
 @MainActor
 final class ChatExperienceModel: ObservableObject {
+    private enum BootstrapState {
+        case idle
+        case running
+        case succeeded
+        case failed
+    }
+
     @Published private(set) var threads: [LinxThreadSummary] = []
     @Published private(set) var messages: [LinxChatMessage] = []
     @Published private(set) var selectedThread: LinxThreadSummary?
     @Published private(set) var activeModelID = AppConstants.defaultModelID
-    @Published private(set) var isBootstrapping = false
+    @Published private var bootstrapState: BootstrapState = .idle
     @Published private(set) var isSending = false
     @Published var isShowingThreadSheet = false
     @Published var errorMessage: String?
@@ -17,7 +24,6 @@ final class ChatExperienceModel: ObservableObject {
     private let modelCatalogClient: LinxModelCatalogClient
     private let runtimeService: LinxOpenAIChatService
 
-    private var bootstrapCompleted = false
     private var loadedMessageLimit = AppConstants.pageSize
     private var sendTask: Task<Void, Never>?
 
@@ -33,15 +39,37 @@ final class ChatExperienceModel: ObservableObject {
         authController.session?.webID
     }
 
+    var isBootstrapping: Bool {
+        bootstrapState == .running
+    }
+
+    var needsBootstrap: Bool {
+        bootstrapState == .idle
+    }
+
+    var canRetryBootstrap: Bool {
+        bootstrapState == .failed && authController.isAuthenticated
+    }
+
     var exyteMessages: [Message] {
         ExyteMessageAdapter.makeMessages(from: messages, currentWebID: currentWebID)
     }
 
     func bootstrapIfNeeded() async {
         guard authController.isAuthenticated else { return }
-        if bootstrapCompleted { return }
+        guard bootstrapState == .idle else { return }
 
-        isBootstrapping = true
+        await runBootstrap()
+    }
+
+    func retryBootstrap() async {
+        guard authController.isAuthenticated, bootstrapState == .failed else { return }
+        bootstrapState = .idle
+        await bootstrapIfNeeded()
+    }
+
+    private func runBootstrap() async {
+        bootstrapState = .running
         errorMessage = nil
 
         do {
@@ -49,12 +77,13 @@ final class ChatExperienceModel: ObservableObject {
             activeModelID = try await modelCatalogClient.preferredModelID()
             try await repository.bootstrap(webID: webID, modelID: activeModelID)
             try await reloadThreads(selectFirstIfNeeded: true)
-            bootstrapCompleted = true
+            bootstrapState = .succeeded
+        } catch is CancellationError {
+            bootstrapState = .idle
         } catch {
             errorMessage = error.localizedDescription
+            bootstrapState = .failed
         }
-
-        isBootstrapping = false
     }
 
     func resetForLogout() {
@@ -64,8 +93,7 @@ final class ChatExperienceModel: ObservableObject {
         messages = []
         selectedThread = nil
         loadedMessageLimit = AppConstants.pageSize
-        bootstrapCompleted = false
-        isBootstrapping = false
+        bootstrapState = .idle
         isSending = false
         errorMessage = nil
         activeModelID = AppConstants.defaultModelID

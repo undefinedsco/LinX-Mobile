@@ -53,13 +53,29 @@ struct ChatScene: View {
             }
             .safeAreaInset(edge: .top) {
                 if let error = viewModel.errorMessage, error.isEmpty == false {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.red.opacity(0.92))
+                    HStack(spacing: 12) {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if viewModel.canRetryBootstrap {
+                            Button("Retry") {
+                                Task {
+                                    await viewModel.retryBootstrap()
+                                }
+                            }
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.red.opacity(0.92))
                 }
             }
             .sheet(isPresented: $viewModel.isShowingThreadSheet) {

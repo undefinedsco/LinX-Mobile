@@ -19,6 +19,7 @@ struct RootView: View {
                     errorMessage: authController.lastErrorMessage,
                     onLogin: {
                         Task {
+                            chatModel.resetForLogout()
                             await authController.login()
                             await chatModel.bootstrapIfNeeded()
                         }
@@ -39,7 +40,9 @@ struct RootView: View {
                         authController.logout()
                     }
                     .task {
-                        await chatModel.bootstrapIfNeeded()
+                        if chatModel.needsBootstrap {
+                            await chatModel.bootstrapIfNeeded()
+                        }
                     }
                 }
             }

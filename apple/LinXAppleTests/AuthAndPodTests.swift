@@ -156,6 +156,56 @@ final class AuthAndPodTests: XCTestCase {
 
         XCTAssertEqual(request.url?.absoluteString, "https://api.undefineds.co/v1/chat/completions")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+        XCTAssertEqual(request.timeoutInterval, AppConstants.runtimeRequestTimeout)
+    }
+
+    @MainActor
+    func testPodClientAppliesRequestTimeoutAndAuthorizationHeader() async throws {
+        let recorder = RequestRecorder()
+        let transport = PodHTTPTransport { request in
+            await recorder.record(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 204,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let client = PodSPARQLClient(
+            authProvider: TestPodAuthProvider(),
+            transport: transport,
+            requestTimeout: 3
+        )
+
+        try await client.putResource(URL(string: "https://pod.example/.data/test.ttl")!, turtle: "<> a <urn:test> .")
+
+        let recordedRequest = await recorder.request
+        let capturedRequest = try XCTUnwrap(recordedRequest)
+        XCTAssertEqual(capturedRequest.timeoutInterval, 3)
+        XCTAssertEqual(capturedRequest.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+    }
+
+    @MainActor
+    func testPodClientMapsTransportTimeout() async throws {
+        let transport = PodHTTPTransport { _ in
+            throw URLError(.timedOut)
+        }
+        let client = PodSPARQLClient(
+            authProvider: TestPodAuthProvider(),
+            transport: transport,
+            requestTimeout: 1
+        )
+
+        do {
+            _ = try await client.head(URL(string: "https://pod.example/.data/")!)
+            XCTFail("Expected Pod timeout error")
+        } catch let error as LinxAppError {
+            XCTAssertEqual(
+                error,
+                .requestTimedOut("Pod request timed out. Check your connection and try again.")
+            )
+        }
     }
 
     func testRuntimeAuthExpiredErrorMatchesCLIInvalidSolidTokenMapping() {
@@ -226,4 +276,21 @@ final class AuthAndPodTests: XCTestCase {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
+}
+
+private actor RequestRecorder {
+    private(set) var request: URLRequest?
+
+    func record(_ request: URLRequest) {
+        self.request = request
+    }
+}
+
+@MainActor
+private final class TestPodAuthProvider: PodSPARQLAuthProviding {
+    func accessToken(forceRefresh _: Bool) async throws -> String {
+        "test-token"
+    }
+
+    func expireSession(message _: String) {}
 }

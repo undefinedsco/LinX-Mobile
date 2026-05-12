@@ -77,6 +77,7 @@ enum LinxAppError: LocalizedError, Equatable {
     case invalidIDToken
     case invalidRuntimeResponse
     case emptyModelCatalog
+    case requestTimedOut(String)
     case podWriteFailed(String)
     case runtimeFailed(String)
     case authFailed(String)
@@ -95,6 +96,8 @@ enum LinxAppError: LocalizedError, Equatable {
             return "The runtime returned an invalid response."
         case .emptyModelCatalog:
             return "No models are available for this account."
+        case .requestTimedOut(let detail):
+            return detail
         case .podWriteFailed(let detail):
             return detail
         case .runtimeFailed(let detail):

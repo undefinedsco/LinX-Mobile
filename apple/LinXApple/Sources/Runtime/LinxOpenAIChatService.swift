@@ -202,7 +202,7 @@ struct LinxOpenAIChatService {
             version: runtimeVersion,
             path: "chat/completions"
         )
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, timeoutInterval: AppConstants.runtimeRequestTimeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

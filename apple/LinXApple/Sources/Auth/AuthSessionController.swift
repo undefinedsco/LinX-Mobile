@@ -106,27 +106,45 @@ final class AuthSessionController: ObservableObject {
         }
 
         return try await withCheckedThrowingContinuation { continuation in
+            let continuationBox = ThrowingContinuationBox<String>(continuation)
+            let timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.timeoutNanoseconds(from: AppConstants.tokenRefreshTimeout))
+                guard Task.isCancelled == false else { return }
+                continuationBox.resume(throwing: LinxAppError.requestTimedOut("Refreshing your LinX Cloud session timed out. Check your connection and try again."))
+            }
+
             authState.performAction { accessToken, _, error in
-                if let error {
-                    self.expireSession(message: error.localizedDescription)
-                    continuation.resume(throwing: error)
-                    return
-                }
+                Task { @MainActor in
+                    timeoutTask.cancel()
 
-                guard let accessToken else {
-                    continuation.resume(throwing: LinxAppError.authFailed("Token refresh returned no access token."))
-                    return
-                }
+                    if let error {
+                        guard continuationBox.isPending else { return }
+                        self.expireSession(message: error.localizedDescription)
+                        continuationBox.resume(throwing: error)
+                        return
+                    }
 
-                do {
-                    try self.persistCurrentState(webID: snapshot.webID, clientID: snapshot.clientID)
-                } catch {
-                    self.lastErrorMessage = error.localizedDescription
-                }
+                    guard let accessToken else {
+                        continuationBox.resume(throwing: LinxAppError.authFailed("Token refresh returned no access token."))
+                        return
+                    }
 
-                continuation.resume(returning: accessToken)
+                    guard continuationBox.isPending else { return }
+
+                    do {
+                        try self.persistCurrentState(webID: snapshot.webID, clientID: snapshot.clientID)
+                    } catch {
+                        self.lastErrorMessage = error.localizedDescription
+                    }
+
+                    continuationBox.resume(returning: accessToken)
+                }
             }
         }
+    }
+
+    private nonisolated static func timeoutNanoseconds(from seconds: TimeInterval) -> UInt64 {
+        UInt64(max(0, seconds) * 1_000_000_000)
     }
 
     func webID() throws -> String {
@@ -224,5 +242,34 @@ final class AuthSessionController: ObservableObject {
         try keychain.saveAuthState(data)
         try keychain.saveSessionMetadata(.init(webID: webID, clientID: clientID))
         try keychain.saveRegisteredClientID(clientID)
+    }
+}
+
+@MainActor
+private final class ThrowingContinuationBox<Success: Sendable> {
+    private var continuation: CheckedContinuation<Success, Error>?
+
+    init(_ continuation: CheckedContinuation<Success, Error>) {
+        self.continuation = continuation
+    }
+
+    var isPending: Bool {
+        continuation != nil
+    }
+
+    @discardableResult
+    func resume(returning value: Success) -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        continuation.resume(returning: value)
+        return true
+    }
+
+    @discardableResult
+    func resume(throwing error: Error) -> Bool {
+        guard let continuation else { return false }
+        self.continuation = nil
+        continuation.resume(throwing: error)
+        return true
     }
 }

@@ -22,4 +22,7 @@ enum AppConstants {
     static let loginExpiredMessage = "LinX Cloud login expired."
 
     static let pageSize = 20
+    static let podRequestTimeout: TimeInterval = 20
+    static let runtimeRequestTimeout: TimeInterval = 30
+    static let tokenRefreshTimeout: TimeInterval = 30
 }
