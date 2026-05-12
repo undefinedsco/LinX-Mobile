@@ -17,9 +17,11 @@ struct PodChatRepository {
     func listThreads(webID: String, limit: Int = AppConstants.pageSize) async throws -> [LinxThreadSummary] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let chatURI = PodStoragePaths.chatURI(baseURL: baseURL, chatID: AppConstants.defaultChatID)
-        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+        let response = try await queryChatEndpoints(
+            baseURL: baseURL,
+            sparql: PodSPARQLBuilder.threadsQuery(chatURI: chatURI, limit: limit)
+        )
 
-        let response = try await client.query(endpoint: endpoint, sparql: PodSPARQLBuilder.threadsQuery(chatURI: chatURI, limit: limit))
         return response.results.bindings.compactMap { binding in
             guard
                 let threadValue = binding["thread"]?.value,
@@ -47,10 +49,8 @@ struct PodChatRepository {
     ) async throws -> [LinxChatMessage] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let threadURI = PodStoragePaths.threadURI(baseURL: baseURL, chatID: AppConstants.defaultChatID, threadID: threadID)
-        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
-
-        let response = try await client.query(
-            endpoint: endpoint,
+        let response = try await queryChatEndpoints(
+            baseURL: baseURL,
             sparql: PodSPARQLBuilder.messagesQuery(threadURI: threadURI, limit: limit, offset: offset)
         )
 
@@ -210,5 +210,28 @@ struct PodChatRepository {
                 updatedAt: updatedAt
             )
         )
+    }
+
+    private func queryChatEndpoints(baseURL: URL, sparql: String) async throws -> SPARQLQueryResponse {
+        var emptyResponse: SPARQLQueryResponse?
+        var lastError: Error?
+
+        for endpoint in PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID) {
+            do {
+                let response = try await client.query(endpoint: endpoint, sparql: sparql)
+                if response.results.bindings.isEmpty == false {
+                    return response
+                }
+                emptyResponse = emptyResponse ?? response
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let emptyResponse {
+            return emptyResponse
+        }
+
+        throw lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
     }
 }

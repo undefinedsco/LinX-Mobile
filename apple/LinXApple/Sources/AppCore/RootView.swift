@@ -11,7 +11,6 @@ struct RootView: View {
                 ProgressView("Preparing LinX…")
                     .task {
                         await authController.restore()
-                        await chatModel.bootstrapIfNeeded()
                     }
             case .unauthenticated:
                 LoginView(
@@ -21,7 +20,6 @@ struct RootView: View {
                         Task {
                             chatModel.resetForLogout()
                             await authController.login()
-                            await chatModel.bootstrapIfNeeded()
                         }
                     }
                 )

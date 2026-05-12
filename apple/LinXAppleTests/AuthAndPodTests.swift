@@ -3,6 +3,9 @@ import XCTest
 @testable import LinXApple
 
 final class AuthAndPodTests: XCTestCase {
+    private let testWebID = "https://alice.example/profile/card#me"
+    private let emptySPARQLResponse = #"{"results":{"bindings":[]}}"#
+
     func testExtractWebIDFromTokenPrefersWebIDClaim() throws {
         let token = makeJWT(payload: [
             "sub": "https://subject.example/profile/card#me",
@@ -25,11 +28,99 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(url.absoluteString, "https://alice.example/")
     }
 
-    func testChatSPARQLEndpointTargetsConcreteChatContainer() throws {
+    func testChatSPARQLEndpointsPreferRootThenConcreteChatContainer() throws {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: "https://alice.example/profile/card#me")
-        let endpoint = PodStoragePaths.chatSPARQLEndpoint(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+        let endpoints = PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID)
 
-        XCTAssertEqual(endpoint.absoluteString, "https://alice.example/.data/chat/cli-default/-/sparql")
+        XCTAssertEqual(endpoints.map(\.absoluteString), [
+            "https://alice.example/.data/chat/-/sparql",
+            "https://alice.example/.data/chat/cli-default/-/sparql",
+        ])
+    }
+
+    @MainActor
+    func testRepositoryListsThreadsFromRootSPARQLEndpoint() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let recorder = URLRequestLog()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(threadSPARQLResponse(id: "thread-1", title: "Saved Thread")),
+                endpointURLs.concrete: .ok(threadSPARQLResponse(id: "thread-2", title: "Fallback Thread")),
+            ],
+            recorder: recorder
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertEqual(threads.map(\.id), ["thread-1"])
+        XCTAssertEqual(threads.first?.title, "Saved Thread")
+        let requestedURLs = await recorder.urls
+        XCTAssertEqual(requestedURLs.map(\.absoluteString), [endpointURLs.root])
+    }
+
+    @MainActor
+    func testRepositoryFallsBackToConcreteSPARQLEndpointWhenRootIsEmpty() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let recorder = URLRequestLog()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(emptySPARQLResponse),
+                endpointURLs.concrete: .ok(threadSPARQLResponse(id: "thread-2", title: "Fallback Thread")),
+            ],
+            recorder: recorder
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertEqual(threads.map(\.id), ["thread-2"])
+        let requestedURLs = await recorder.urls
+        XCTAssertEqual(requestedURLs.map(\.absoluteString), [endpointURLs.root, endpointURLs.concrete])
+    }
+
+    @MainActor
+    func testRepositoryReturnsEmptyWhenAllSPARQLEndpointsAreEmpty() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(emptySPARQLResponse),
+                endpointURLs.concrete: .ok(emptySPARQLResponse),
+            ]
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertTrue(threads.isEmpty)
+    }
+
+    @MainActor
+    func testRepositoryIgnoresRootSPARQLFailureWhenFallbackSucceeds() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .failure(status: 500),
+                endpointURLs.concrete: .ok(threadSPARQLResponse(id: "thread-3", title: "Recovered Thread")),
+            ]
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertEqual(threads.map(\.id), ["thread-3"])
+    }
+
+    @MainActor
+    func testRepositoryLoadsMessagesFromFallbackSPARQLEndpoint() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(emptySPARQLResponse),
+                endpointURLs.concrete: .ok(messageSPARQLResponse(id: "message-1", content: "hello again")),
+            ]
+        )
+
+        let messages = try await repository.loadMessages(webID: testWebID, threadID: "thread-1", limit: 20)
+
+        XCTAssertEqual(messages.map(\.id), ["message-1"])
+        XCTAssertEqual(messages.first?.content, "hello again")
     }
 
     func testPreferredModelSelection() throws {
@@ -283,6 +374,66 @@ final class AuthAndPodTests: XCTestCase {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
+
+    private func chatEndpointURLs() throws -> (root: String, concrete: String) {
+        let baseURL = try PodStoragePaths.podBaseURL(forWebID: testWebID)
+        let endpoints = PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+        return (endpoints[0].absoluteString, endpoints[1].absoluteString)
+    }
+
+    @MainActor
+    private func makeRepository(
+        routes: [String: MockHTTPRoute],
+        recorder: URLRequestLog = URLRequestLog()
+    ) -> PodChatRepository {
+        let transport = PodHTTPTransport { request in
+            await recorder.record(request)
+            let route = routes[request.url?.absoluteString ?? ""] ?? .failure(status: 404)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: route.status,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(route.body.utf8), response)
+        }
+        return PodChatRepository(client: PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport))
+    }
+
+    private func threadSPARQLResponse(id: String, title: String) -> String {
+        """
+        {
+          "results": {
+            "bindings": [
+              {
+                "thread": { "type": "uri", "value": "https://alice.example/.data/chat/cli-default/index.ttl#\(id)" },
+                "title": { "type": "literal", "value": "\(title)" },
+                "createdAt": { "type": "literal", "value": "1970-01-01T00:00:00Z" },
+                "updatedAt": { "type": "literal", "value": "1970-01-01T00:01:00Z" }
+              }
+            ]
+          }
+        }
+        """
+    }
+
+    private func messageSPARQLResponse(id: String, content: String) -> String {
+        """
+        {
+          "results": {
+            "bindings": [
+              {
+                "message": { "type": "uri", "value": "https://alice.example/.data/chat/cli-default/1970/01/01/messages.ttl#\(id)" },
+                "maker": { "type": "uri", "value": "https://alice.example/profile/card#me" },
+                "role": { "type": "literal", "value": "user" },
+                "content": { "type": "literal", "value": "\(content)" },
+                "createdAt": { "type": "literal", "value": "1970-01-01T00:00:00Z" }
+              }
+            ]
+          }
+        }
+        """
+    }
 }
 
 private actor RequestRecorder {
@@ -290,6 +441,29 @@ private actor RequestRecorder {
 
     func record(_ request: URLRequest) {
         self.request = request
+    }
+}
+
+private actor URLRequestLog {
+    private(set) var urls: [URL] = []
+
+    func record(_ request: URLRequest) {
+        if let url = request.url {
+            urls.append(url)
+        }
+    }
+}
+
+private struct MockHTTPRoute: Sendable {
+    let status: Int
+    let body: String
+
+    static func ok(_ body: String) -> MockHTTPRoute {
+        MockHTTPRoute(status: 200, body: body)
+    }
+
+    static func failure(status: Int) -> MockHTTPRoute {
+        MockHTTPRoute(status: status, body: "mock failure")
     }
 }
 
