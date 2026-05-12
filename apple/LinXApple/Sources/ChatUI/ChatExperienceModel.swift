@@ -19,7 +19,7 @@ final class ChatExperienceModel: ObservableObject {
 
     private var bootstrapCompleted = false
     private var loadedMessageLimit = AppConstants.pageSize
-    private var streamingTask: Task<Void, Never>?
+    private var sendTask: Task<Void, Never>?
 
     init(authController: AuthSessionController) {
         self.authController = authController
@@ -35,13 +35,6 @@ final class ChatExperienceModel: ObservableObject {
 
     var exyteMessages: [Message] {
         ExyteMessageAdapter.makeMessages(from: messages, currentWebID: currentWebID)
-    }
-
-    var canRetryLastUserMessage: Bool {
-        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
-            return false
-        }
-        return lastAssistant.status == .failed || lastAssistant.status == .cancelled
     }
 
     func bootstrapIfNeeded() async {
@@ -65,8 +58,8 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     func resetForLogout() {
-        streamingTask?.cancel()
-        streamingTask = nil
+        sendTask?.cancel()
+        sendTask = nil
         threads = []
         messages = []
         selectedThread = nil
@@ -80,7 +73,7 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     func newChat() {
-        streamingTask?.cancel()
+        sendTask?.cancel()
         selectedThread = nil
         messages = []
         loadedMessageLimit = AppConstants.pageSize
@@ -101,29 +94,13 @@ final class ChatExperienceModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false, isSending == false else { return }
 
-        streamingTask = Task {
+        sendTask = Task {
             await executeSend(text: trimmed)
         }
     }
 
-    func cancelStreaming() {
-        streamingTask?.cancel()
-    }
-
-    func retryLastUserMessage() {
-        guard
-            let failedAssistant = messages.last(where: { $0.role == .assistant && ($0.status == .failed || $0.status == .cancelled) }),
-            let failedIndex = messages.lastIndex(where: { $0.id == failedAssistant.id })
-        else {
-            return
-        }
-
-        let previousMessages = messages[..<failedIndex]
-        guard let userMessage = previousMessages.last(where: { $0.role == .user }) else {
-            return
-        }
-
-        enqueueSend(userMessage.content)
+    func cancelSend() {
+        sendTask?.cancel()
     }
 
     func loadMoreMessages() {
@@ -149,72 +126,38 @@ final class ChatExperienceModel: ObservableObject {
             let userMessage = try await repository.appendUserMessage(webID: webID, threadID: thread.id, content: text)
             messages.append(userMessage)
 
-            let assistantPlaceholder = try await repository.appendAssistantPlaceholder(webID: webID, threadID: thread.id)
-            messages.append(assistantPlaceholder)
-
             let history = messages
-                .filter { $0.threadID == thread.id && $0.id != assistantPlaceholder.id }
+                .filter { $0.threadID == thread.id }
                 .sorted { $0.createdAt < $1.createdAt }
 
-            var lastPersistedContent = ""
-            var lastPersistedAt = Date.distantPast
-
-            let finalContent = try await runtimeService.streamReply(messages: history, modelID: activeModelID) { accumulated in
-                await MainActor.run {
-                    self.replaceMessage(
-                        id: assistantPlaceholder.id,
-                        content: accumulated,
-                        status: .streaming,
-                        updatedAt: Date()
-                    )
-                }
-
-                let now = Date()
-                if now.timeIntervalSince(lastPersistedAt) >= 0.2 {
-                    try await self.repository.patchAssistantMessage(
-                        webID: webID,
-                        threadID: thread.id,
-                        messageID: assistantPlaceholder.id,
-                        content: accumulated,
-                        status: .streaming,
-                        createdAt: assistantPlaceholder.createdAt
-                    )
-                    lastPersistedContent = accumulated
-                    lastPersistedAt = now
-                }
-            }
-
-            if finalContent != lastPersistedContent || finalContent.isEmpty {
-                try await repository.patchAssistantMessage(
-                    webID: webID,
-                    threadID: thread.id,
-                    messageID: assistantPlaceholder.id,
-                    content: finalContent,
-                    status: .completed,
-                    createdAt: assistantPlaceholder.createdAt
-                )
-            }
-
-            replaceMessage(id: assistantPlaceholder.id, content: finalContent, status: .completed, updatedAt: Date())
+            let completion = try await runtimeService.createCompletionResult(messages: history, modelID: activeModelID)
+            let assistantMessage = try await repository.appendAssistantMessage(
+                webID: webID,
+                threadID: thread.id,
+                content: completion.content
+            )
+            messages.append(assistantMessage)
             try await reloadThreads(selectFirstIfNeeded: false)
         } catch is CancellationError {
-            await markStreamingMessageAs(.cancelled)
+            errorMessage = "LinX Cloud request aborted by user."
         } catch {
             errorMessage = error.localizedDescription
-            await markStreamingMessageAs(.failed)
         }
 
         isSending = false
-        streamingTask = nil
+        sendTask = nil
     }
 
-    private func ensureThread(for firstMessage: String, webID: String) async throws -> LinxThreadSummary {
+    private func ensureThread(for _: String, webID: String) async throws -> LinxThreadSummary {
         if let selectedThread {
             return selectedThread
         }
 
-        let title = makeThreadTitle(from: firstMessage)
-        let createdThread = try await repository.createThread(webID: webID, title: title)
+        let createdThread = try await repository.createThread(
+            webID: webID,
+            title: AppConstants.defaultThreadTitle,
+            workspace: AppConstants.defaultThreadWorkspace
+        )
         selectedThread = createdThread
         messages = []
         threads.insert(createdThread, at: 0)
@@ -254,41 +197,4 @@ final class ChatExperienceModel: ObservableObject {
         }
     }
 
-    private func makeThreadTitle(from text: String) -> String {
-        let title = String(text.prefix(40)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? AppConstants.defaultThreadTitle : title
-    }
-
-    private func replaceMessage(id: String, content: String, status: LinxMessageStatus, updatedAt: Date) {
-        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].content = content
-        messages[index].status = status
-        messages[index].updatedAt = updatedAt
-    }
-
-    private func markStreamingMessageAs(_ status: LinxMessageStatus) async {
-        guard
-            let selectedThread,
-            let webID = currentWebID,
-            let lastAssistant = messages.last(where: { $0.role == .assistant && $0.status == .streaming })
-        else {
-            return
-        }
-
-        replaceMessage(id: lastAssistant.id, content: lastAssistant.content, status: status, updatedAt: Date())
-
-        do {
-            try await repository.patchAssistantMessage(
-                webID: webID,
-                threadID: selectedThread.id,
-                messageID: lastAssistant.id,
-                content: lastAssistant.content,
-                status: status,
-                createdAt: lastAssistant.createdAt
-            )
-            try await reloadThreads(selectFirstIfNeeded: false)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 }

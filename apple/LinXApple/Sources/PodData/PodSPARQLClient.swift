@@ -64,6 +64,10 @@ final class PodSPARQLClient {
 
         guard 200 ..< 300 ~= httpResponse.statusCode else {
             let detail = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            if LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: detail).authExpired {
+                authController.expireSession(message: AppConstants.loginExpiredMessage)
+                throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
+            }
             throw LinxAppError.podWriteFailed("Pod request failed (\(httpResponse.statusCode)): \(detail)")
         }
 

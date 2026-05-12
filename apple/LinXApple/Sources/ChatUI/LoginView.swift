@@ -32,7 +32,7 @@ struct LoginView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("OIDC authorization code + PKCE", systemImage: "lock.shield")
                     Label("Chat history synced through your Pod", systemImage: "tray.full")
-                    Label("Streaming chat on LinX cloud runtime", systemImage: "bolt.horizontal")
+                    Label("OpenAI-compatible LinX cloud runtime", systemImage: "bolt.horizontal")
                 }
                 .font(.subheadline.weight(.medium))
                 .padding(18)

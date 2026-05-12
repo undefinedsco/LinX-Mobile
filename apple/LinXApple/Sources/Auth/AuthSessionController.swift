@@ -106,6 +106,16 @@ final class AuthSessionController: ObservableObject {
         lastErrorMessage = nil
     }
 
+    func expireSession(message: String = AppConstants.loginExpiredMessage) {
+        currentAuthorizationFlow?.cancel()
+        currentAuthorizationFlow = nil
+        authState = nil
+        session = nil
+        keychain.clearSession()
+        phase = .unauthenticated
+        lastErrorMessage = message
+    }
+
     func handleRedirect(url: URL) {
         guard let currentAuthorizationFlow else { return }
         if currentAuthorizationFlow.resumeExternalUserAgentFlow(with: url) {
@@ -125,11 +135,7 @@ final class AuthSessionController: ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             authState.performAction { accessToken, _, error in
                 if let error {
-                    self.authState = nil
-                    self.session = nil
-                    self.keychain.clearSession()
-                    self.phase = .unauthenticated
-                    self.lastErrorMessage = error.localizedDescription
+                    self.expireSession(message: error.localizedDescription)
                     continuation.resume(throwing: error)
                     return
                 }

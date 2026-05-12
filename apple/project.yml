@@ -17,9 +17,6 @@ packages:
   ExyteChatPackage:
     url: https://github.com/exyte/Chat
     exactVersion: 3.0.2
-  SwiftOpenAIPackage:
-    url: https://github.com/jamesrochabrun/SwiftOpenAI
-    exactVersion: 4.4.9
   MarkdownViewPackage:
     url: https://github.com/LiYanan2004/MarkdownView
     exactVersion: 2.6.1
@@ -46,8 +43,6 @@ targets:
         product: AppAuth
       - package: ExyteChatPackage
         product: ExyteChat
-      - package: SwiftOpenAIPackage
-        product: SwiftOpenAI
       - package: MarkdownViewPackage
         product: MarkdownView
     scheme:

@@ -43,7 +43,7 @@ struct ChatScene: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if viewModel.isSending {
                         Button("Cancel", role: .destructive) {
-                            viewModel.cancelStreaming()
+                            viewModel.cancelSend()
                         }
                     }
                     Button("New Chat") {
@@ -60,27 +60,6 @@ struct ChatScene: View {
                         .padding(.vertical, 10)
                         .frame(maxWidth: .infinity)
                         .background(Color.red.opacity(0.92))
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                if viewModel.canRetryLastUserMessage {
-                    HStack {
-                        Spacer()
-                        Button("Retry Last Message") {
-                            viewModel.retryLastUserMessage()
-                        }
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color(red: 0.95, green: 0.96, blue: 0.93), in: Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                        )
-                        Spacer()
-                    }
-                    .padding(.vertical, 6)
-                    .background(.clear)
                 }
             }
             .sheet(isPresented: $viewModel.isShowingThreadSheet) {

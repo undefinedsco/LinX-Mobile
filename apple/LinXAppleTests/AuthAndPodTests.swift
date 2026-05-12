@@ -33,10 +33,165 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(try LinxModelCatalogClient.pickPreferredModelID(from: models), AppConstants.defaultModelID)
     }
 
+    func testPreferredModelSelectionFallsBackToDefaultWhenCatalogIsEmpty() throws {
+        XCTAssertEqual(try LinxModelCatalogClient.pickPreferredModelID(from: []), AppConstants.defaultModelID)
+    }
+
+    func testRuntimeRequestBodyMatchesCLIChatCompletionContract() throws {
+        let messages = [
+            LinxChatMessage(
+                id: "message-1",
+                threadID: "thread-1",
+                maker: "https://pod.example/profile/card#me",
+                role: .user,
+                content: "hello",
+                richContent: nil,
+                status: .sent,
+                createdAt: Date(timeIntervalSince1970: 0),
+                updatedAt: nil
+            ),
+        ]
+
+        let body = LinxOpenAIChatService.makeRequestBody(messages: messages, modelID: AppConstants.defaultModelID)
+        let data = try JSONEncoder().encode(body)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(json["model"] as? String, AppConstants.defaultModelID)
+        XCTAssertEqual(json["stream"] as? Bool, false)
+        XCTAssertNil(json["tools"])
+        XCTAssertNil(json["tool_choice"])
+
+        let encodedMessages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        XCTAssertEqual(encodedMessages.count, 1)
+        XCTAssertEqual(encodedMessages[0]["role"] as? String, "user")
+        XCTAssertEqual(encodedMessages[0]["content"] as? String, "hello")
+    }
+
+    func testRuntimeRequestBodyIncludesToolsWhenProvided() throws {
+        let tool = RemoteChatTool(
+            type: "function",
+            function: .init(
+                name: "search",
+                description: "Search documents",
+                parameters: .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "query": .object(["type": .string("string")]),
+                    ]),
+                    "required": .array([.string("query")]),
+                ])
+            )
+        )
+
+        let body = LinxOpenAIChatService.makeRequestBody(
+            messages: [],
+            modelID: AppConstants.defaultModelID,
+            tools: [tool]
+        )
+        let data = try JSONEncoder().encode(body)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(json["tool_choice"] as? String, "auto")
+        let tools = try XCTUnwrap(json["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools[0]["type"] as? String, "function")
+    }
+
+    func testRuntimeResponseDecodesReasoningToolCallsAndUsage() throws {
+        let response = """
+        {
+          "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 99,
+            "prompt_tokens_details": {
+              "cached_tokens": 4,
+              "cache_write_tokens": 1
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 2
+            }
+          },
+          "choices": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "content": [
+                  { "type": "text", "text": "hello" }
+                ],
+                "reasoning_content": "thinking",
+                "tool_calls": [
+                  {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                      "name": "search",
+                      "arguments": "{\\"query\\":\\"hello\\"}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """
+
+        let result = try LinxOpenAIChatService.decodeCompletionResult(from: Data(response.utf8))
+
+        XCTAssertEqual(result.content, "hello")
+        XCTAssertEqual(result.reasoningContent, "thinking")
+        XCTAssertEqual(result.finishReason, "tool_calls")
+        XCTAssertEqual(result.toolCalls.first?.function.name, "search")
+        XCTAssertEqual(result.usage, RemoteCompletionUsage(input: 6, output: 7, cacheRead: 3, cacheWrite: 1, totalTokens: 17))
+    }
+
+    func testRuntimeRequestURLDoesNotDuplicateV1() throws {
+        let body = LinxOpenAIChatService.makeRequestBody(messages: [], modelID: AppConstants.defaultModelID)
+        let request = try LinxOpenAIChatService.makeURLRequest(
+            runtimeBaseURL: URL(string: "https://api.undefineds.co/v1/")!,
+            runtimeVersion: AppConstants.runtimeVersion,
+            apiKey: "token",
+            body: body
+        )
+
+        XCTAssertEqual(request.url?.absoluteString, "https://api.undefineds.co/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+    }
+
+    func testRuntimeAuthExpiredErrorMatchesCLIInvalidSolidTokenMapping() {
+        let error = LinxRuntimeRequestError.http(status: 401, responseBody: #"{"error":"invalid solid token"}"#)
+
+        XCTAssertTrue(error.authExpired)
+        XCTAssertEqual(error.message, AppConstants.loginExpiredMessage)
+    }
+
+    func testSharedContractUsesModelsWorkflowNamespace() {
+        XCTAssertEqual(LinxSharedContract.Namespace.wf, "http://www.w3.org/2005/01/wf/flow-1.0#")
+    }
+
+    func testSharedContractMirrorsChatSubjectTemplates() {
+        XCTAssertEqual(LinxSharedContract.Resource.SubjectTemplate.chat, "{id}/index.ttl#this")
+        XCTAssertEqual(LinxSharedContract.Resource.SubjectTemplate.thread, "{chat|id}/index.ttl#{id}")
+        XCTAssertEqual(LinxSharedContract.Resource.SubjectTemplate.message, "{chat|id}/{yyyy}/{MM}/{dd}/messages.ttl#{id}")
+    }
+
     func testSPARQLEscapingKeepsTripleQuotesSafe() {
         let escaped = PodSPARQLBuilder.escapeLiteral("hello\n\"world\"")
         XCTAssertTrue(escaped.contains("\"\"\""))
         XCTAssertTrue(escaped.contains("world"))
+    }
+
+    func testThreadPatchPersistsCLIAlignedTitleAndWorkspace() {
+        let patch = PodSPARQLBuilder.createThreadPatch(
+            chatURI: "https://pod.example/.data/chat/cli-default/index.ttl#this",
+            threadURI: "https://pod.example/.data/chat/cli-default/index.ttl#thread",
+            title: AppConstants.defaultThreadTitle,
+            workspace: AppConstants.defaultThreadWorkspace,
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(patch.contains("CLI Session"))
+        XCTAssertTrue(patch.contains("udfs:workspace <\(AppConstants.defaultThreadWorkspace)>"))
     }
 
     func testPKCERequestUsesExpectedRedirectAndScopes() {

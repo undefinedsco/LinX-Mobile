@@ -30,11 +30,12 @@ enum PodStoragePaths {
     }
 
     static func dataContainer(baseURL: URL) -> URL {
-        baseURL.appendingPathComponent(".data", isDirectory: true)
+        baseURL.appendingPathComponent(LinxSharedContract.Resource.dataContainerName, isDirectory: true)
     }
 
     static func chatRootContainer(baseURL: URL) -> URL {
-        dataContainer(baseURL: baseURL).appendingPathComponent("chat", isDirectory: true)
+        dataContainer(baseURL: baseURL)
+            .appendingPathComponent(LinxSharedContract.Resource.chatContainerName, isDirectory: true)
     }
 
     static func chatContainer(baseURL: URL, chatID: String) -> URL {
@@ -42,15 +43,18 @@ enum PodStoragePaths {
     }
 
     static func chatIndexResource(baseURL: URL, chatID: String) -> URL {
-        chatContainer(baseURL: baseURL, chatID: chatID).appendingPathComponent("index.ttl", isDirectory: false)
+        chatContainer(baseURL: baseURL, chatID: chatID)
+            .appendingPathComponent(LinxSharedContract.Resource.chatIndexFileName, isDirectory: false)
     }
 
     static func agentsContainer(baseURL: URL) -> URL {
-        dataContainer(baseURL: baseURL).appendingPathComponent("agents", isDirectory: true)
+        dataContainer(baseURL: baseURL)
+            .appendingPathComponent(LinxSharedContract.Resource.agentsContainerName, isDirectory: true)
     }
 
     static func agentResource(baseURL: URL, agentID: String) -> URL {
-        agentsContainer(baseURL: baseURL).appendingPathComponent("\(agentID).ttl", isDirectory: false)
+        agentsContainer(baseURL: baseURL)
+            .appendingPathComponent("\(agentID).\(LinxSharedContract.Resource.agentFileExtension)", isDirectory: false)
     }
 
     static func messageContainers(baseURL: URL, chatID: String, date: Date) -> [URL] {
@@ -68,11 +72,12 @@ enum PodStoragePaths {
     static func messageResource(baseURL: URL, chatID: String, date: Date) -> URL {
         messageContainers(baseURL: baseURL, chatID: chatID, date: date)
             .last!
-            .appendingPathComponent("messages.ttl", isDirectory: false)
+            .appendingPathComponent(LinxSharedContract.Resource.messagesFileName, isDirectory: false)
     }
 
     static func chatURI(baseURL: URL, chatID: String) -> String {
-        chatIndexResource(baseURL: baseURL, chatID: chatID).absoluteString + "#this"
+        chatIndexResource(baseURL: baseURL, chatID: chatID).absoluteString
+            + "#\(LinxSharedContract.Resource.chatSubjectFragment)"
     }
 
     static func threadURI(baseURL: URL, chatID: String, threadID: String) -> String {

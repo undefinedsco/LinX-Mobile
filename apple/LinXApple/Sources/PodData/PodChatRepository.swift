@@ -82,7 +82,11 @@ struct PodChatRepository {
         .reversed()
     }
 
-    func createThread(webID: String, title: String) async throws -> LinxThreadSummary {
+    func createThread(
+        webID: String,
+        title: String = AppConstants.defaultThreadTitle,
+        workspace: String = AppConstants.defaultThreadWorkspace
+    ) async throws -> LinxThreadSummary {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let now = Date()
         let threadID = UUID().uuidString
@@ -94,6 +98,7 @@ struct PodChatRepository {
                 chatURI: PodStoragePaths.chatURI(baseURL: baseURL, chatID: AppConstants.defaultChatID),
                 threadURI: PodStoragePaths.threadURI(baseURL: baseURL, chatID: AppConstants.defaultChatID, threadID: threadID),
                 title: title,
+                workspace: workspace,
                 createdAt: now
             )
         )
@@ -116,9 +121,10 @@ struct PodChatRepository {
         )
     }
 
-    func appendAssistantPlaceholder(
+    func appendAssistantMessage(
         webID: String,
-        threadID: String
+        threadID: String,
+        content: String
     ) async throws -> LinxChatMessage {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         return try await appendMessage(
@@ -126,41 +132,9 @@ struct PodChatRepository {
             threadID: threadID,
             maker: PodStoragePaths.agentURI(baseURL: baseURL, agentID: AppConstants.defaultAgentID),
             role: .assistant,
-            content: "",
-            status: .streaming
+            content: content,
+            status: .sent
         )
-    }
-
-    func patchAssistantMessage(
-        webID: String,
-        threadID: String,
-        messageID: String,
-        content: String,
-        status: LinxMessageStatus,
-        createdAt: Date
-    ) async throws {
-        let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
-        let resourceURL = PodStoragePaths.messageResource(baseURL: baseURL, chatID: AppConstants.defaultChatID, date: createdAt)
-        let messageURI = PodStoragePaths.messageSubjectURI(
-            baseURL: baseURL,
-            chatID: AppConstants.defaultChatID,
-            messageID: messageID,
-            date: createdAt
-        )
-        let updatedAt = Date()
-
-        try await ensureMessageDocument(baseURL: baseURL, date: createdAt)
-        try await client.patch(
-            resourceURL,
-            sparql: PodSPARQLBuilder.patchMessageContent(
-                messageURI: messageURI,
-                content: content,
-                richContent: nil,
-                status: status,
-                updatedAt: updatedAt
-            )
-        )
-        try await patchActivity(baseURL: baseURL, threadID: threadID, preview: content, updatedAt: updatedAt)
     }
 
     private func appendMessage(

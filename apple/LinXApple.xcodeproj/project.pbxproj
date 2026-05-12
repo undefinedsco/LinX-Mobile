@@ -10,7 +10,6 @@
 		0BB12D05E7E342E4AA37D41B /* PodSPARQLTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E161939EF69E2A2E0360EF /* PodSPARQLTypes.swift */; };
 		0EDB999773A3E8B067F34C51 /* PodSPARQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C1D673127294EB264192B1B /* PodSPARQLBuilder.swift */; };
 		102B5221D5F6B3A22CCC50A8 /* LinXAppleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160ADF6DA5CE4EBB7FD45738 /* LinXAppleUITests.swift */; };
-		12DEEE497622AED4F9D4AE3D /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 5398844C9BBC52B31B328233 /* MarkdownView */; };
 		13F99263DC59BBCF5505090C /* PodStoragePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62453068EE5975D9C9E12368 /* PodStoragePaths.swift */; };
 		1E4D2044655839E3B71FA9B2 /* DynamicClientRegistrar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A695E84B62B808B522B9C68E /* DynamicClientRegistrar.swift */; };
 		230518DD5B299EA2BC2015B0 /* OIDCDiscoveryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D9876092D2D34C13A325B3D /* OIDCDiscoveryClient.swift */; };
@@ -18,13 +17,14 @@
 		2F7355E3DE4AD1D06C66A897 /* AuthAndPodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */; };
 		32205F0C4B4FB77361589212 /* LinXAppleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */; };
 		5D781AA2D354AD8AC8F89C38 /* JWTUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F0564592561E6695E1185C /* JWTUtilities.swift */; };
+		60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */; };
 		6D25A62B85953B90A844F2BA /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FA4264569D40F354DB2DBD /* KeychainSessionStore.swift */; };
 		7144AAEE52FEA628500D2E2F /* ChatExperienceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737B61D3893CF582784DB6BD /* ChatExperienceModel.swift */; };
 		78343D53554AF5FD582876A7 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 20106F1F2CF673CB85D7505B /* AppAuth */; };
 		7DE77E6ED13B433AA2D53DB4 /* ThreadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7D0FB80BB16FF9720D7468E /* ThreadListView.swift */; };
 		910E4C47834BFE3D2E027BD9 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17AD65DADA0DA82A8074FD63 /* AppConstants.swift */; };
 		A8FBB36EB0C47694027D136D /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305879D2560EBEF23B4DBB2C /* DomainModels.swift */; };
-		AA1AB73955B9EA3864DC52BD /* SwiftOpenAI in Frameworks */ = {isa = PBXBuildFile; productRef = E716EAC7EBF575F7E6760CE4 /* SwiftOpenAI */; };
+		AA1AB73955B9EA3864DC52BD /* MarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = 5398844C9BBC52B31B328233 /* MarkdownView */; };
 		B286A9503064803D8B99F311 /* AuthSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3812D8E3FF330679B2F7D602 /* AuthSessionController.swift */; };
 		B3A570E7549905A3577FC2D5 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C50DC535B7EF00B9A720E7 /* LoginView.swift */; };
 		BB60E386CC6D8E45F9C4EC59 /* PodChatRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9625A6A158082D2CFC252624 /* PodChatRepository.swift */; };
@@ -89,6 +89,7 @@
 		CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinXAppleApp.swift; sourceTree = "<group>"; };
 		D9FA4264569D40F354DB2DBD /* KeychainSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSessionStore.swift; sourceTree = "<group>"; };
 		E4C93AD1857125B191BB0FFB /* PodBootstrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodBootstrapper.swift; sourceTree = "<group>"; };
+		E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxSharedContract.swift; sourceTree = "<group>"; };
 		FD1BBB5D9C7C55051A4E4CF5 /* ExyteMessageAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExyteMessageAdapter.swift; sourceTree = "<group>"; };
 		FDAC13C039B8F5F063D2D224 /* LinXAppleTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LinXAppleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -108,8 +109,7 @@
 			files = (
 				78343D53554AF5FD582876A7 /* AppAuth in Frameworks */,
 				F3FE6F14D3F1964E87D04474 /* ExyteChat in Frameworks */,
-				AA1AB73955B9EA3864DC52BD /* SwiftOpenAI in Frameworks */,
-				12DEEE497622AED4F9D4AE3D /* MarkdownView in Frameworks */,
+				AA1AB73955B9EA3864DC52BD /* MarkdownView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,6 +235,7 @@
 				305879D2560EBEF23B4DBB2C /* DomainModels.swift */,
 				CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */,
 				277B37722CE6C4A8D6AC6E12 /* LinxDate.swift */,
+				E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */,
 				8D26D8E4AC4C548D2B7304F3 /* RootView.swift */,
 				C08D5B19111A3BBEF346C9A7 /* UIApplication+TopController.swift */,
 			);
@@ -277,7 +278,6 @@
 			packageProductDependencies = (
 				20106F1F2CF673CB85D7505B /* AppAuth */,
 				BB86BE5B2D3F9E9E876D5231 /* ExyteChat */,
-				E716EAC7EBF575F7E6760CE4 /* SwiftOpenAI */,
 				5398844C9BBC52B31B328233 /* MarkdownView */,
 			);
 			productName = LinXApple;
@@ -334,7 +334,6 @@
 				78F15B4893FC52B45BBC8C7E /* XCRemoteSwiftPackageReference "AppAuth-iOS" */,
 				424D5FE2E088DBAC4ADA97EA /* XCRemoteSwiftPackageReference "Chat" */,
 				906827DEBD56B43F6B5556E4 /* XCRemoteSwiftPackageReference "MarkdownView" */,
-				A98F9FA86FC3519BF68C11D2 /* XCRemoteSwiftPackageReference "SwiftOpenAI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9C5AB3BA281A583C19FEA9F8 /* Products */;
@@ -367,6 +366,7 @@
 				D694CE789F763D924B784FCA /* LinxDate.swift in Sources */,
 				D6B8DC3DAD8E4B3205765A32 /* LinxModelCatalogClient.swift in Sources */,
 				D77450385BCEDBE1ECAC9614 /* LinxOpenAIChatService.swift in Sources */,
+				60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */,
 				B3A570E7549905A3577FC2D5 /* LoginView.swift in Sources */,
 				230518DD5B299EA2BC2015B0 /* OIDCDiscoveryClient.swift in Sources */,
 				F7EBEE1F199CBF8AD60458A2 /* PKCECoordinator.swift in Sources */,
@@ -715,14 +715,6 @@
 				version = 2.6.1;
 			};
 		};
-		A98F9FA86FC3519BF68C11D2 /* XCRemoteSwiftPackageReference "SwiftOpenAI" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jamesrochabrun/SwiftOpenAI";
-			requirement = {
-				kind = exactVersion;
-				version = 4.4.9;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -745,11 +737,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 424D5FE2E088DBAC4ADA97EA /* XCRemoteSwiftPackageReference "Chat" */;
 			productName = ExyteChat;
-		};
-		E716EAC7EBF575F7E6760CE4 /* SwiftOpenAI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A98F9FA86FC3519BF68C11D2 /* XCRemoteSwiftPackageReference "SwiftOpenAI" */;
-			productName = SwiftOpenAI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

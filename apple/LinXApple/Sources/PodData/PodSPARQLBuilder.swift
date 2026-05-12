@@ -2,14 +2,14 @@ import Foundation
 
 enum PodSPARQLBuilder {
     private static let prefixes = """
-    PREFIX dcterms: <http://purl.org/dc/terms/>
-    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-    PREFIX meeting: <http://www.w3.org/ns/pim/meeting#>
-    PREFIX schema: <https://schema.org/>
-    PREFIX sioc: <http://rdfs.org/sioc/ns#>
-    PREFIX udfs: <https://undefineds.co/ns#>
-    PREFIX wf: <http://www.w3.org/2005/01/wf/flow#>
-    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    PREFIX dcterms: <\(LinxSharedContract.Namespace.dcterms)>
+    PREFIX foaf: <\(LinxSharedContract.Namespace.foaf)>
+    PREFIX meeting: <\(LinxSharedContract.Namespace.meeting)>
+    PREFIX schema: <\(LinxSharedContract.Namespace.schema)>
+    PREFIX sioc: <\(LinxSharedContract.Namespace.sioc)>
+    PREFIX udfs: <\(LinxSharedContract.Namespace.udfs)>
+    PREFIX wf: <\(LinxSharedContract.Namespace.wf)>
+    PREFIX xsd: <\(LinxSharedContract.Namespace.xsd)>
     """
 
     static func escapeLiteral(_ value: String) -> String {
@@ -102,15 +102,18 @@ enum PodSPARQLBuilder {
         chatURI: String,
         threadURI: String,
         title: String,
+        workspace: String?,
         createdAt: Date
     ) -> String {
-        """
+        let workspaceTriple = workspace.map { "\n            udfs:workspace <\($0)> ;" } ?? ""
+
+        return """
         \(prefixes)
 
         INSERT DATA {
           <\(threadURI)> a sioc:Thread ;
             sioc:has_parent <\(chatURI)> ;
-            dcterms:title \(escapeLiteral(title)) ;
+            dcterms:title \(escapeLiteral(title)) ;\(workspaceTriple)
             dcterms:created \(dateLiteral(createdAt)) ;
             dcterms:modified \(dateLiteral(createdAt)) .
         }
@@ -146,44 +149,6 @@ enum PodSPARQLBuilder {
             udfs:messageStatus \(escapeLiteral(status.rawValue)) ;
             dcterms:created \(dateLiteral(createdAt)) ;
             dcterms:modified \(dateLiteral(createdAt)) .
-        }
-        """
-    }
-
-    static func patchMessageContent(
-        messageURI: String,
-        content: String,
-        richContent: String?,
-        status: LinxMessageStatus,
-        updatedAt: Date
-    ) -> String {
-        var insertTriples = [
-            "<\(messageURI)> sioc:content \(escapeLiteral(content)) .",
-            "<\(messageURI)> udfs:messageStatus \(escapeLiteral(status.rawValue)) .",
-            "<\(messageURI)> dcterms:modified \(dateLiteral(updatedAt)) .",
-        ]
-
-        if let richContent {
-            insertTriples.append("<\(messageURI)> sioc:richContent \(escapeLiteral(richContent)) .")
-        }
-
-        return """
-        \(prefixes)
-
-        DELETE {
-          <\(messageURI)> sioc:content ?oldContent .
-          <\(messageURI)> sioc:richContent ?oldRichContent .
-          <\(messageURI)> udfs:messageStatus ?oldStatus .
-          <\(messageURI)> dcterms:modified ?oldUpdatedAt .
-        }
-        INSERT {
-          \(insertTriples.joined(separator: "\n          "))
-        }
-        WHERE {
-          OPTIONAL { <\(messageURI)> sioc:content ?oldContent . }
-          OPTIONAL { <\(messageURI)> sioc:richContent ?oldRichContent . }
-          OPTIONAL { <\(messageURI)> udfs:messageStatus ?oldStatus . }
-          OPTIONAL { <\(messageURI)> dcterms:modified ?oldUpdatedAt . }
         }
         """
     }
