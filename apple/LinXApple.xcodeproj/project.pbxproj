@@ -65,7 +65,7 @@
 		0C1D673127294EB264192B1B /* PodSPARQLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodSPARQLBuilder.swift; sourceTree = "<group>"; };
 		160ADF6DA5CE4EBB7FD45738 /* LinXAppleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinXAppleUITests.swift; sourceTree = "<group>"; };
 		17AD65DADA0DA82A8074FD63 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
-		24593156FC938716288F72DA /* LinXApple.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LinXApple.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		24593156FC938716288F72DA /* LinXApple.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LinXApple.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		277B37722CE6C4A8D6AC6E12 /* LinxDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxDate.swift; sourceTree = "<group>"; };
 		305879D2560EBEF23B4DBB2C /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		3812D8E3FF330679B2F7D602 /* AuthSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionController.swift; sourceTree = "<group>"; };
@@ -474,6 +474,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -493,6 +494,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
