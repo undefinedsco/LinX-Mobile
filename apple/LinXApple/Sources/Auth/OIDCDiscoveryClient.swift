@@ -27,11 +27,43 @@ struct OIDCDiscoveryDocument: Decodable, Sendable {
 
 struct OIDCDiscoveryClient {
     func discover() async throws -> OIDCDiscoveryDocument {
-        let (data, response) = try await URLSession.shared.data(from: AppConstants.discoveryURL)
-        guard let httpResponse = response as? HTTPURLResponse, 200 ..< 300 ~= httpResponse.statusCode else {
-            throw LinxAppError.authFailed("OIDC discovery failed.")
+        var lastError: Error?
+
+        for attempt in 1 ... 3 {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: AppConstants.discoveryURL)
+                guard let httpResponse = response as? HTTPURLResponse, 200 ..< 300 ~= httpResponse.statusCode else {
+                    throw LinxAppError.authFailed("OIDC discovery failed.")
+                }
+
+                return try JSONDecoder().decode(OIDCDiscoveryDocument.self, from: data)
+            } catch {
+                lastError = error
+
+                guard attempt < 3, Self.shouldRetry(error) else {
+                    throw error
+                }
+
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
+            }
         }
 
-        return try JSONDecoder().decode(OIDCDiscoveryDocument.self, from: data)
+        throw lastError ?? LinxAppError.authFailed("OIDC discovery failed.")
+    }
+
+    private static func shouldRetry(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+
+        switch urlError.code {
+        case .notConnectedToInternet,
+             .networkConnectionLost,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed,
+             .timedOut:
+            return true
+        default:
+            return false
+        }
     }
 }

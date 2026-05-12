@@ -137,7 +137,7 @@ final class ChatExperienceModel: ObservableObject {
                 content: completion.content
             )
             messages.append(assistantMessage)
-            try await reloadThreads(selectFirstIfNeeded: false)
+            try await reloadThreads(selectFirstIfNeeded: false, reloadMessages: false)
         } catch is CancellationError {
             errorMessage = "LinX Cloud request aborted by user."
         } catch {
@@ -180,14 +180,16 @@ final class ChatExperienceModel: ObservableObject {
         }
     }
 
-    private func reloadThreads(selectFirstIfNeeded: Bool) async throws {
+    private func reloadThreads(selectFirstIfNeeded: Bool, reloadMessages: Bool = true) async throws {
         let webID = try authController.webID()
         let loaded = try await repository.listThreads(webID: webID)
         threads = loaded.sorted { $0.updatedAt > $1.updatedAt }
 
         if let selectedThread, let updated = threads.first(where: { $0.id == selectedThread.id }) {
             self.selectedThread = updated
-            await loadMessagesForCurrentThread()
+            if reloadMessages {
+                await loadMessagesForCurrentThread()
+            }
             return
         }
 

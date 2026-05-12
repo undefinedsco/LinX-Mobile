@@ -24,6 +24,12 @@ struct RootView: View {
                         }
                     }
                 )
+            case .authenticating:
+                LoginView(
+                    isBusy: true,
+                    errorMessage: authController.lastErrorMessage,
+                    onLogin: {}
+                )
             case .authenticated:
                 if chatModel.isBootstrapping {
                     ProgressView("Syncing your Pod…")

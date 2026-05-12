@@ -2,6 +2,7 @@ import Foundation
 
 enum LinxLaunchPhase: Equatable {
     case launching
+    case authenticating
     case unauthenticated
     case authenticated
 }

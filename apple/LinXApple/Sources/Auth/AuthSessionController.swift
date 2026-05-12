@@ -14,6 +14,8 @@ final class AuthSessionController: ObservableObject {
 
     private var authState: OIDAuthState?
     private var currentAuthorizationFlow: OIDExternalUserAgentSession?
+    private var currentAuthorizationContinuation: CheckedContinuation<Void, Error>?
+    private var completedAuthorizationState: OIDAuthState?
 
     var isAuthenticated: Bool {
         session != nil
@@ -41,8 +43,10 @@ final class AuthSessionController: ObservableObject {
     }
 
     func login() async {
+        guard phase != .authenticating else { return }
+
         do {
-            phase = .launching
+            phase = .authenticating
             lastErrorMessage = nil
 
             let discovery = try await discoveryClient.discover()
@@ -51,32 +55,7 @@ final class AuthSessionController: ObservableObject {
             let presenter = try presenterViewController()
             let request = PKCECoordinator.makeAuthorizationRequest(configuration: configuration, clientID: clientID)
 
-            var completedAuthState: OIDAuthState?
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                self.currentAuthorizationFlow = OIDAuthState.authState(
-                    byPresenting: request,
-                    presenting: presenter
-                ) { authState, error in
-                    self.currentAuthorizationFlow = nil
-
-                    if let error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-
-                    guard let authState else {
-                        continuation.resume(throwing: LinxAppError.authFailed("Authorization completed without tokens."))
-                        return
-                    }
-
-                    completedAuthState = authState
-                    continuation.resume()
-                }
-            }
-
-            guard let authState = completedAuthState else {
-                throw LinxAppError.authFailed("Authorization completed without auth state.")
-            }
+            let authState = try await presentAuthorization(request: request, presenter: presenter)
 
             guard let idToken = authState.lastTokenResponse?.idToken else {
                 throw LinxAppError.invalidIDToken
@@ -88,17 +67,12 @@ final class AuthSessionController: ObservableObject {
             try persistCurrentState(webID: webID, clientID: clientID)
             phase = .authenticated
         } catch {
-            authState = nil
-            currentAuthorizationFlow = nil
-            session = nil
-            phase = .unauthenticated
-            lastErrorMessage = error.localizedDescription
+            failLogin(with: error)
         }
     }
 
     func logout() {
-        currentAuthorizationFlow?.cancel()
-        currentAuthorizationFlow = nil
+        cancelAuthorizationFlow()
         authState = nil
         session = nil
         keychain.clearAll()
@@ -107,8 +81,7 @@ final class AuthSessionController: ObservableObject {
     }
 
     func expireSession(message: String = AppConstants.loginExpiredMessage) {
-        currentAuthorizationFlow?.cancel()
-        currentAuthorizationFlow = nil
+        cancelAuthorizationFlow()
         authState = nil
         session = nil
         keychain.clearSession()
@@ -178,6 +151,71 @@ final class AuthSessionController: ObservableObject {
             throw LinxAppError.missingPresenter
         }
         return presenter
+    }
+
+    private func presentAuthorization(
+        request: OIDAuthorizationRequest,
+        presenter: UIViewController
+    ) async throws -> OIDAuthState {
+        completedAuthorizationState = nil
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            currentAuthorizationContinuation = continuation
+            currentAuthorizationFlow = OIDAuthState.authState(
+                byPresenting: request,
+                presenting: presenter
+            ) { authState, error in
+                Task { @MainActor in
+                    self.completeAuthorizationFlow(authState: authState, error: error)
+                }
+            }
+        }
+
+        guard let authState = completedAuthorizationState else {
+            throw LinxAppError.authFailed("Authorization completed without auth state.")
+        }
+
+        completedAuthorizationState = nil
+        return authState
+    }
+
+    private func completeAuthorizationFlow(authState: OIDAuthState?, error: Error?) {
+        guard let continuation = currentAuthorizationContinuation else { return }
+
+        currentAuthorizationContinuation = nil
+        currentAuthorizationFlow = nil
+
+        if let error {
+            continuation.resume(throwing: error)
+            return
+        }
+
+        guard let authState else {
+            continuation.resume(throwing: LinxAppError.authFailed("Authorization completed without tokens."))
+            return
+        }
+
+        completedAuthorizationState = authState
+        continuation.resume()
+    }
+
+    private func cancelAuthorizationFlow() {
+        currentAuthorizationFlow?.cancel()
+        currentAuthorizationFlow = nil
+
+        if let continuation = currentAuthorizationContinuation {
+            currentAuthorizationContinuation = nil
+            completedAuthorizationState = nil
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    private func failLogin(with error: Error) {
+        cancelAuthorizationFlow()
+        authState = nil
+        session = nil
+        phase = .unauthenticated
+        lastErrorMessage = error.localizedDescription
     }
 
     private func persistCurrentState(webID: String, clientID: String) throws {
