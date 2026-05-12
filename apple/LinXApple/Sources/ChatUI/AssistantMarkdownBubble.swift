@@ -2,6 +2,8 @@ import MarkdownView
 import SwiftUI
 
 struct AssistantMarkdownBubble: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let message: LinxChatMessage
 
     private var bodyText: String {
@@ -30,6 +32,16 @@ struct AssistantMarkdownBubble: View {
         default:
             return nil
         }
+    }
+
+    private var bubbleFill: Color {
+        colorScheme == .dark
+            ? Color(red: 0.13, green: 0.17, blue: 0.16)
+            : Color(red: 0.95, green: 0.96, blue: 0.93)
+    }
+
+    private var bubbleStroke: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
     }
 
     var body: some View {
@@ -62,11 +74,11 @@ struct AssistantMarkdownBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(red: 0.95, green: 0.96, blue: 0.93))
+                .fill(bubbleFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                .stroke(bubbleStroke, lineWidth: 1)
         )
         .contextMenu {
             Button("Copy") {

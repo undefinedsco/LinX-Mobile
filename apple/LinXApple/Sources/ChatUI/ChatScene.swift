@@ -2,11 +2,29 @@ import ExyteChat
 import SwiftUI
 
 struct ChatScene: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @ObservedObject var viewModel: ChatExperienceModel
     let onLogout: () -> Void
 
     private var navigationTitle: String {
         viewModel.selectedThread?.title ?? "LinX"
+    }
+
+    private var backgroundGradient: LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [
+                    Color(red: 0.06, green: 0.08, blue: 0.11),
+                    Color(red: 0.03, green: 0.06, blue: 0.09),
+                ]
+                : [
+                    Color(red: 0.98, green: 0.98, blue: 0.95),
+                    Color.white,
+                ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     var body: some View {
@@ -88,14 +106,7 @@ struct ChatScene: View {
                 )
             }
             .background(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.98, green: 0.98, blue: 0.95),
-                        Color.white,
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                backgroundGradient
                 .ignoresSafeArea()
             )
         }
