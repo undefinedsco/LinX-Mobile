@@ -11,4 +11,5 @@ struct SPARQLResultsContainer: Decodable {
 struct SPARQLValue: Decodable {
     let type: String
     let value: String
+    let datatype: String?
 }

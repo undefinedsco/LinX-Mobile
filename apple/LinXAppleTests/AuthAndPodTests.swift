@@ -34,8 +34,17 @@ final class AuthAndPodTests: XCTestCase {
 
         XCTAssertEqual(endpoints.map(\.absoluteString), [
             "https://alice.example/.data/chat/-/sparql",
-            "https://alice.example/.data/chat/cli-default/-/sparql",
+            "https://alice.example/.data/chat/ios-default/-/sparql",
         ])
+    }
+
+    func testLinxDateParseSupportsPodCompatibleFormats() throws {
+        XCTAssertEqual(LinxDate.parse("1970-01-01T00:00:00.123Z")?.timeIntervalSince1970 ?? -1, 0.123, accuracy: 0.001)
+        XCTAssertEqual(LinxDate.parse("1970-01-01T00:00:00Z")?.timeIntervalSince1970 ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(LinxDate.parse("1970-01-01 00:00:00 +0000")?.timeIntervalSince1970 ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(LinxDate.parse("1970-01-01")?.timeIntervalSince1970 ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(LinxDate.parse("1000000000")?.timeIntervalSince1970 ?? -1, 1_000_000_000, accuracy: 0.001)
+        XCTAssertEqual(LinxDate.parse("1000000000000")?.timeIntervalSince1970 ?? -1, 1_000_000_000, accuracy: 0.001)
     }
 
     @MainActor
@@ -75,6 +84,56 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(threads.map(\.id), ["thread-2"])
         let requestedURLs = await recorder.urls
         XCTAssertEqual(requestedURLs.map(\.absoluteString), [endpointURLs.root, endpointURLs.concrete])
+    }
+
+    @MainActor
+    func testRepositoryFallsBackToConcreteSPARQLEndpointWhenRootThreadBindingsDoNotMap() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let recorder = URLRequestLog()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(threadSPARQLResponse(
+                    id: "thread-bad-date",
+                    title: "Bad Date Thread",
+                    createdAt: "not-a-date",
+                    updatedAt: nil
+                )),
+                endpointURLs.concrete: .ok(threadSPARQLResponse(id: "thread-2", title: "Fallback Thread")),
+            ],
+            recorder: recorder
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertEqual(threads.map(\.id), ["thread-2"])
+        let requestedURLs = await recorder.urls
+        XCTAssertEqual(requestedURLs.map(\.absoluteString), [endpointURLs.root, endpointURLs.concrete])
+    }
+
+    @MainActor
+    func testRepositoryUsesUpdatedAtWhenCreatedAtIsInvalid() async throws {
+        let endpointURLs = try chatEndpointURLs()
+        let recorder = URLRequestLog()
+        let repository = makeRepository(
+            routes: [
+                endpointURLs.root: .ok(threadSPARQLResponse(
+                    id: "thread-4",
+                    title: "Recovered Date Thread",
+                    createdAt: "not-a-date",
+                    updatedAt: "1970-01-01 00:01:00 +0000"
+                )),
+                endpointURLs.concrete: .ok(threadSPARQLResponse(id: "thread-5", title: "Unused Fallback Thread")),
+            ],
+            recorder: recorder
+        )
+
+        let threads = try await repository.listThreads(webID: testWebID)
+
+        XCTAssertEqual(threads.map(\.id), ["thread-4"])
+        XCTAssertEqual(threads.first?.createdAt.timeIntervalSince1970 ?? -1, 60, accuracy: 0.001)
+        XCTAssertEqual(threads.first?.updatedAt.timeIntervalSince1970 ?? -1, 60, accuracy: 0.001)
+        let requestedURLs = await recorder.urls
+        XCTAssertEqual(requestedURLs.map(\.absoluteString), [endpointURLs.root])
     }
 
     @MainActor
@@ -283,7 +342,7 @@ final class AuthAndPodTests: XCTestCase {
 
     func testAllMessagesQueryOmitsPaginationLimit() {
         let query = PodSPARQLBuilder.messagesQuery(
-            threadURI: "https://pod.example/.data/chat/cli-default/index.ttl#thread-1",
+            threadURI: "https://pod.example/.data/chat/ios-default/index.ttl#thread-1",
             limit: nil,
             offset: 0
         )
@@ -498,16 +557,16 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertTrue(escaped.contains("world"))
     }
 
-    func testThreadPatchPersistsCLIAlignedTitleAndWorkspace() {
+    func testThreadPatchPersistsIOSAlignedTitleAndWorkspace() {
         let patch = PodSPARQLBuilder.createThreadPatch(
-            chatURI: "https://pod.example/.data/chat/cli-default/index.ttl#this",
-            threadURI: "https://pod.example/.data/chat/cli-default/index.ttl#thread",
+            chatURI: "https://pod.example/.data/chat/ios-default/index.ttl#this",
+            threadURI: "https://pod.example/.data/chat/ios-default/index.ttl#thread",
             title: AppConstants.defaultThreadTitle,
             workspace: AppConstants.defaultThreadWorkspace,
             createdAt: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertTrue(patch.contains("CLI Session"))
+        XCTAssertTrue(patch.contains("iOS Session"))
         XCTAssertTrue(patch.contains("udfs:workspace <\(AppConstants.defaultThreadWorkspace)>"))
         XCTAssertEqual(AppConstants.defaultThreadWorkspace, "co.undefineds.linx.apple://workspace/default")
     }
@@ -720,16 +779,31 @@ final class AuthAndPodTests: XCTestCase {
         return PodChatRepository(client: PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport))
     }
 
-    private func threadSPARQLResponse(id: String, title: String) -> String {
-        """
+    private func threadSPARQLResponse(
+        id: String,
+        title: String,
+        createdAt: String? = "1970-01-01T00:00:00Z",
+        updatedAt: String? = "1970-01-01T00:01:00Z"
+    ) -> String {
+        let createdAtField = createdAt.map {
+            #""createdAt": { "type": "literal", "value": "\#($0)", "datatype": "http://www.w3.org/2001/XMLSchema#dateTime" }"#
+        }
+        let updatedAtField = updatedAt.map {
+            #""updatedAt": { "type": "literal", "value": "\#($0)", "datatype": "http://www.w3.org/2001/XMLSchema#dateTime" }"#
+        }
+        let fields = [
+            #""thread": { "type": "uri", "value": "https://alice.example/.data/chat/ios-default/index.ttl#\#(id)" }"#,
+            #""title": { "type": "literal", "value": "\#(title)" }"#,
+            createdAtField,
+            updatedAtField,
+        ].compactMap { $0 }.joined(separator: ",\n                ")
+
+        return """
         {
           "results": {
             "bindings": [
               {
-                "thread": { "type": "uri", "value": "https://alice.example/.data/chat/cli-default/index.ttl#\(id)" },
-                "title": { "type": "literal", "value": "\(title)" },
-                "createdAt": { "type": "literal", "value": "1970-01-01T00:00:00Z" },
-                "updatedAt": { "type": "literal", "value": "1970-01-01T00:01:00Z" }
+                \(fields)
               }
             ]
           }
@@ -743,7 +817,7 @@ final class AuthAndPodTests: XCTestCase {
           "results": {
             "bindings": [
               {
-                "message": { "type": "uri", "value": "https://alice.example/.data/chat/cli-default/1970/01/01/messages.ttl#\(id)" },
+                "message": { "type": "uri", "value": "https://alice.example/.data/chat/ios-default/1970/01/01/messages.ttl#\(id)" },
                 "maker": { "type": "uri", "value": "https://alice.example/profile/card#me" },
                 "role": { "type": "literal", "value": "user" },
                 "content": { "type": "literal", "value": "\(content)" },
