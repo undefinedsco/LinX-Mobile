@@ -1,7 +1,5 @@
 import Foundation
-#if DEBUG
 import OSLog
-#endif
 
 @MainActor
 protocol PodSPARQLAuthProviding: AnyObject {
@@ -49,38 +47,28 @@ final class PodSPARQLClient {
 
         let (data, response) = try await authorizedData(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-#if DEBUG
-            LinxDiagnostics.podNetwork.debug("HEAD nonHTTPResponse host=\(url.host ?? "-", privacy: .public) path=\(url.path, privacy: .private) treatingExists=true")
-#endif
+            LinxDiagnostics.podNetwork.debug("HEAD nonHTTPResponse host=\(url.host ?? "-", privacy: .private) path=\(url.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: url), privacy: .public) treatingExists=true")
             return true
         }
 
         if 200 ..< 300 ~= httpResponse.statusCode {
-#if DEBUG
-            LinxDiagnostics.podNetwork.debug("HEAD exists=true status=\(httpResponse.statusCode, privacy: .public) host=\(url.host ?? "-", privacy: .public) path=\(url.path, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.debug("HEAD exists=true status=\(httpResponse.statusCode, privacy: .public) host=\(url.host ?? "-", privacy: .private) path=\(url.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: url), privacy: .public)")
             return true
         }
 
         if httpResponse.statusCode == 404 {
-#if DEBUG
-            LinxDiagnostics.podNetwork.debug("HEAD exists=false status=404 host=\(url.host ?? "-", privacy: .public) path=\(url.path, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.debug("HEAD exists=false status=404 host=\(url.host ?? "-", privacy: .private) path=\(url.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: url), privacy: .public)")
             return false
         }
 
         let detail = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
         if LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: detail).authExpired {
-#if DEBUG
-            LinxDiagnostics.podNetwork.error("HEAD auth expired status=\(httpResponse.statusCode, privacy: .public) host=\(url.host ?? "-", privacy: .public) path=\(url.path, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.error("HEAD auth expired status=\(httpResponse.statusCode, privacy: .public) host=\(url.host ?? "-", privacy: .private) path=\(url.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: url), privacy: .public)")
             authProvider.expireSession(message: AppConstants.loginExpiredMessage)
             throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
         }
 
-#if DEBUG
-        LinxDiagnostics.podNetwork.error("HEAD failed status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(url.host ?? "-", privacy: .public) path=\(url.path, privacy: .private)")
-#endif
+        LinxDiagnostics.podNetwork.error("HEAD failed status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(url.host ?? "-", privacy: .private) path=\(url.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: url), privacy: .public)")
         throw LinxAppError.podWriteFailed("Pod HEAD request failed (\(httpResponse.statusCode)): \(detail)")
     }
 
@@ -119,14 +107,10 @@ final class PodSPARQLClient {
         let data = try await expectSuccess(for: request)
         do {
             let decoded = try JSONDecoder().decode(SPARQLQueryResponse.self, from: data)
-#if DEBUG
-            LinxDiagnostics.podNetwork.debug("SPARQL decode succeeded bindings=\(decoded.results.bindings.count, privacy: .public) bytes=\(data.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .public) path=\(endpoint.path, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.debug("SPARQL decode succeeded bindings=\(decoded.results.bindings.count, privacy: .public) bytes=\(data.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .private) path=\(endpoint.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: endpoint), privacy: .public)")
             return decoded
         } catch {
-#if DEBUG
-            LinxDiagnostics.podNetwork.error("SPARQL decode failed bytes=\(data.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .public) path=\(endpoint.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.error("SPARQL decode failed bytes=\(data.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .private) path=\(endpoint.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: endpoint), privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             throw error
         }
     }
@@ -134,21 +118,15 @@ final class PodSPARQLClient {
     private func expectSuccess(for request: URLRequest) async throws -> Data {
         let (data, response) = try await authorizedData(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-#if DEBUG
-            LinxDiagnostics.podNetwork.debug("request success nonHTTPResponse method=\(request.httpMethod ?? "GET", privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.info("request success nonHTTPResponse method=\(request.httpMethod ?? "GET", privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
             return data
         }
 
         guard 200 ..< 300 ~= httpResponse.statusCode else {
             let detail = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-#if DEBUG
-            LinxDiagnostics.podNetwork.error("request non2xx method=\(request.httpMethod ?? "GET", privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.error("request non2xx method=\(request.httpMethod ?? "GET", privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
             if LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: detail).authExpired {
-#if DEBUG
                 LinxDiagnostics.podNetwork.error("request auth expired method=\(request.httpMethod ?? "GET", privacy: .public) status=\(httpResponse.statusCode, privacy: .public)")
-#endif
                 authProvider.expireSession(message: AppConstants.loginExpiredMessage)
                 throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
             }
@@ -159,18 +137,14 @@ final class PodSPARQLClient {
     }
 
     private func authorizedData(for request: URLRequest, retried: Bool = false) async throws -> (Data, URLResponse) {
-#if DEBUG
         let startedAt = Date()
-        LinxDiagnostics.podNetwork.debug("request start method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) retried=\(retried, privacy: .public)")
-#endif
+        LinxDiagnostics.podNetwork.info("request start method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) retried=\(retried, privacy: .public)")
         var authorizedRequest = request
         do {
             let token = try await authProvider.accessToken(forceRefresh: retried)
             authorizedRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } catch {
-#if DEBUG
-            LinxDiagnostics.podNetwork.error("request token failed method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) forceRefresh=\(retried, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.error("request token failed method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) forceRefresh=\(retried, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             throw error
         }
 
@@ -179,35 +153,25 @@ final class PodSPARQLClient {
         do {
             (data, response) = try await transport.data(authorizedRequest)
         } catch is CancellationError {
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.podNetwork.debug("request cancelled method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) durationMs=\(durationMs, privacy: .public)")
-#endif
+            LinxDiagnostics.podNetwork.info("request cancelled method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) durationMs=\(durationMs, privacy: .public)")
             throw CancellationError()
         } catch {
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.podNetwork.error("request transport error method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) durationMs=\(durationMs, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
-#endif
+            LinxDiagnostics.podNetwork.error("request transport error method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) durationMs=\(durationMs, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             throw Self.mapTransportError(error)
         }
 
         if let httpResponse = response as? HTTPURLResponse {
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.podNetwork.debug("request response method=\(request.httpMethod ?? "GET", privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) durationMs=\(durationMs, privacy: .public) retried=\(retried, privacy: .public)")
-#endif
+            LinxDiagnostics.podNetwork.info("request response method=\(request.httpMethod ?? "GET", privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) durationMs=\(durationMs, privacy: .public) retried=\(retried, privacy: .public)")
             if httpResponse.statusCode == 401, retried == false {
-#if DEBUG
-                LinxDiagnostics.podNetwork.debug("request 401 retry with forceRefresh method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private)")
-#endif
+                LinxDiagnostics.podNetwork.info("request 401 retry with forceRefresh method=\(request.httpMethod ?? "GET", privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
                 return try await authorizedData(for: request, retried: true)
             }
         } else {
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.podNetwork.debug("request response nonHTTP method=\(request.httpMethod ?? "GET", privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .public) path=\(request.url?.path ?? "-", privacy: .private) durationMs=\(durationMs, privacy: .public)")
-#endif
+            LinxDiagnostics.podNetwork.info("request response nonHTTP method=\(request.httpMethod ?? "GET", privacy: .public) bytes=\(data.count, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) durationMs=\(durationMs, privacy: .public)")
         }
 
         return (data, response)

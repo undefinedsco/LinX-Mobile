@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 protocol LinxRuntimeAuthProviding: AnyObject {
@@ -168,9 +169,11 @@ struct LinxOpenAIChatService {
         do {
             return try await sendCompletion(requestBody: requestBody, forceRefresh: false)
         } catch let error as LinxRuntimeRequestError where error.authExpired {
+            LinxDiagnostics.runtime.info("completion auth expired retrying with token refresh modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public)")
             do {
                 return try await sendCompletion(requestBody: requestBody, forceRefresh: true)
             } catch let refreshedError as LinxRuntimeRequestError where refreshedError.authExpired {
+                LinxDiagnostics.runtime.error("completion auth expired after token refresh modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public)")
                 authProvider.expireSession(message: AppConstants.loginExpiredMessage)
                 throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
             }
@@ -215,34 +218,89 @@ struct LinxOpenAIChatService {
         requestBody: RemoteChatCompletionRequest,
         forceRefresh: Bool
     ) async throws -> RemoteCompletionResult {
-        let token = try await authProvider.accessToken(forceRefresh: forceRefresh)
-        let request = try Self.makeURLRequest(
-            runtimeBaseURL: runtimeBaseURL,
-            runtimeVersion: runtimeVersion,
-            apiKey: token,
-            body: requestBody
-        )
+        let startedAt = Date()
+        let token: String
+        do {
+            token = try await authProvider.accessToken(forceRefresh: forceRefresh)
+        } catch {
+            LinxDiagnostics.runtime.error("completion token failed modelID=\(requestBody.model, privacy: .public) forceRefresh=\(forceRefresh, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            throw error
+        }
+
+        let request: URLRequest
+        do {
+            request = try Self.makeURLRequest(
+                runtimeBaseURL: runtimeBaseURL,
+                runtimeVersion: runtimeVersion,
+                apiKey: token,
+                body: requestBody
+            )
+        } catch {
+            LinxDiagnostics.runtime.error("completion request build failed modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            throw error
+        }
+
+        LinxDiagnostics.runtime.info("completion request start modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public) tools=\(requestBody.tools?.count ?? 0, privacy: .public) forceRefresh=\(forceRefresh, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
 
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await transport.data(request)
         } catch is CancellationError {
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.runtime.info("completion request cancelled modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public) durationMs=\(durationMs, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
             throw CancellationError()
         } catch {
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.runtime.error("completion transport failed modelID=\(requestBody.model, privacy: .public) messages=\(requestBody.messages.count, privacy: .public) durationMs=\(durationMs, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             throw LinxRuntimeRequestError.transport(error)
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            return try Self.decodeCompletionResult(from: data)
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.runtime.info("completion response nonHTTP modelID=\(requestBody.model, privacy: .public) bytes=\(data.count, privacy: .public) durationMs=\(durationMs, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
+            return try Self.decodeLoggedCompletionResult(
+                from: data,
+                modelID: requestBody.model,
+                messageCount: requestBody.messages.count,
+                startedAt: startedAt
+            )
         }
+
+        let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        LinxDiagnostics.runtime.info("completion response modelID=\(requestBody.model, privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) durationMs=\(durationMs, privacy: .public) forceRefresh=\(forceRefresh, privacy: .public) host=\(request.url?.host ?? "-", privacy: .private) path=\(request.url?.path ?? "-", privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: request.url), privacy: .public)")
 
         guard 200 ..< 300 ~= httpResponse.statusCode else {
             let body = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-            throw LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: body)
+            let error = LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: body)
+            LinxDiagnostics.runtime.error("completion non2xx modelID=\(requestBody.model, privacy: .public) status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public) authExpired=\(error.authExpired, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            throw error
         }
 
-        return try Self.decodeCompletionResult(from: data)
+        return try Self.decodeLoggedCompletionResult(
+            from: data,
+            modelID: requestBody.model,
+            messageCount: requestBody.messages.count,
+            startedAt: startedAt
+        )
+    }
+
+    nonisolated private static func decodeLoggedCompletionResult(
+        from data: Data,
+        modelID: String,
+        messageCount: Int,
+        startedAt: Date
+    ) throws -> RemoteCompletionResult {
+        do {
+            let result = try decodeCompletionResult(from: data)
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.runtime.info("completion decode succeeded modelID=\(modelID, privacy: .public) messages=\(messageCount, privacy: .public) finishReason=\(result.finishReason ?? "-", privacy: .public) toolCalls=\(result.toolCalls.count, privacy: .public) hasReasoning=\((result.reasoningContent?.isEmpty == false), privacy: .public) inputTokens=\(result.usage?.input ?? 0, privacy: .public) outputTokens=\(result.usage?.output ?? 0, privacy: .public) durationMs=\(durationMs, privacy: .public)")
+            return result
+        } catch {
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.runtime.error("completion decode failed modelID=\(modelID, privacy: .public) messages=\(messageCount, privacy: .public) bytes=\(data.count, privacy: .public) durationMs=\(durationMs, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            throw error
+        }
     }
 
     nonisolated static func decodeCompletionResult(from data: Data) throws -> RemoteCompletionResult {

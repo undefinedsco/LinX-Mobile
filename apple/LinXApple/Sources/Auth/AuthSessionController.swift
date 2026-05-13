@@ -1,9 +1,7 @@
 import AppAuth
 import Foundation
-import UIKit
-#if DEBUG
 import OSLog
-#endif
+import UIKit
 
 @MainActor
 protocol AuthSessionStoring: AnyObject {
@@ -84,9 +82,7 @@ final class AuthSessionController: ObservableObject {
             }
 
             guard Self.hasUsableRefreshToken(authState) else {
-#if DEBUG
-                LinxDiagnostics.auth.error("restore rejected persisted auth state without refresh token")
-#endif
+                LinxDiagnostics.auth.error("restore rejected persisted auth state without refresh token webIDHash=\(LinxDiagnostics.fingerprint(metadata.webID), privacy: .public)")
                 keychain.clearSession()
                 self.authState = nil
                 session = nil
@@ -98,7 +94,9 @@ final class AuthSessionController: ObservableObject {
             self.authState = authState
             session = AuthenticatedSessionSnapshot(webID: metadata.webID, clientID: metadata.clientID)
             phase = .authenticated
+            LinxDiagnostics.auth.info("restore succeeded webIDHash=\(LinxDiagnostics.fingerprint(metadata.webID), privacy: .public)")
         } catch {
+            LinxDiagnostics.auth.error("restore failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             keychain.clearSession()
             phase = .unauthenticated
             lastErrorMessage = error.localizedDescription
@@ -121,9 +119,7 @@ final class AuthSessionController: ObservableObject {
             let authState = try await authorize(request: request, presenter: presenter)
 
             guard Self.hasUsableRefreshToken(authState) else {
-#if DEBUG
                 LinxDiagnostics.auth.error("login rejected auth state without refresh token")
-#endif
                 keychain.clearAll()
                 throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
             }
@@ -137,6 +133,7 @@ final class AuthSessionController: ObservableObject {
             session = AuthenticatedSessionSnapshot(webID: webID, clientID: clientID)
             try persistCurrentState(webID: webID, clientID: clientID)
             phase = .authenticated
+            LinxDiagnostics.auth.info("login succeeded webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
         } catch {
             failLogin(with: error)
         }
@@ -173,9 +170,7 @@ final class AuthSessionController: ObservableObject {
         }
 
         guard Self.hasUsableRefreshToken(authState) else {
-#if DEBUG
-            LinxDiagnostics.auth.error("access token request rejected auth state without refresh token")
-#endif
+            LinxDiagnostics.auth.error("access token request rejected auth state without refresh token webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public)")
             let error = LinxAppError.authFailed(AppConstants.loginExpiredMessage)
             expireSession(message: AppConstants.loginExpiredMessage)
             throw error
@@ -200,6 +195,7 @@ final class AuthSessionController: ObservableObject {
                     if let error {
                         guard continuationBox.isPending else { return }
                         let mappedError = Self.mapTokenRefreshError(error)
+                        LinxDiagnostics.auth.error("token refresh failed forceRefresh=\(forceRefresh, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public) error=\(mappedError.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(mappedError.localizedDescription), privacy: .public)")
                         self.expireSession(message: mappedError.localizedDescription)
                         continuationBox.resume(throwing: mappedError)
                         return
@@ -207,6 +203,7 @@ final class AuthSessionController: ObservableObject {
 
                     guard let accessToken else {
                         let error = LinxAppError.authFailed("Token refresh returned no access token.")
+                        LinxDiagnostics.auth.error("token refresh returned empty access token forceRefresh=\(forceRefresh, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public)")
                         self.expireSession(message: error.localizedDescription)
                         continuationBox.resume(throwing: error)
                         return
@@ -347,6 +344,7 @@ final class AuthSessionController: ObservableObject {
     }
 
     private func failLogin(with error: Error) {
+        LinxDiagnostics.auth.error("login failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
         cancelAuthorizationFlow()
         authState = nil
         session = nil

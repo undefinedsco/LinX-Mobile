@@ -1,7 +1,5 @@
 import Foundation
-#if DEBUG
 import OSLog
-#endif
 
 @MainActor
 struct PodChatRepository {
@@ -30,9 +28,7 @@ struct PodChatRepository {
     func listThreads(webID: String, limit: Int = AppConstants.pageSize) async throws -> [LinxThreadSummary] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let chatURI = PodStoragePaths.chatURI(baseURL: baseURL, chatID: AppConstants.defaultChatID)
-#if DEBUG
-        LinxDiagnostics.podRepository.debug("listThreads start limit=\(limit, privacy: .public) baseHost=\(baseURL.host ?? "-", privacy: .public) basePath=\(baseURL.path, privacy: .private) chatURI=\(chatURI, privacy: .private)")
-#endif
+        LinxDiagnostics.podRepository.info("listThreads start limit=\(limit, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public) baseHost=\(baseURL.host ?? "-", privacy: .private) basePath=\(baseURL.path, privacy: .private) baseURLHash=\(LinxDiagnostics.fingerprint(url: baseURL), privacy: .public) chatURI=\(chatURI, privacy: .private) chatURIHash=\(LinxDiagnostics.fingerprint(chatURI), privacy: .public)")
         return try await queryThreadEndpoints(
             baseURL: baseURL,
             sparql: PodSPARQLBuilder.threadsQuery(chatURI: chatURI, limit: limit)
@@ -68,9 +64,7 @@ struct PodChatRepository {
                 missingCreatedAtCount += 1
             } else if parsedCreatedAt == nil {
                 invalidCreatedAtCount += 1
-#if DEBUG
                 LinxDiagnostics.podRepository.debug("listThreads invalid createdAt type=\(binding["createdAt"]?.type ?? "-", privacy: .public) datatype=\(binding["createdAt"]?.datatype ?? "-", privacy: .public) updatedAtType=\(binding["updatedAt"]?.type ?? "-", privacy: .public) updatedAtDatatype=\(binding["updatedAt"]?.datatype ?? "-", privacy: .public)")
-#endif
             }
 
             guard let createdAt = parsedCreatedAt ?? parsedUpdatedAt else {
@@ -108,41 +102,30 @@ struct PodChatRepository {
 
         let endpoints = PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID)
         for (index, endpoint) in endpoints.enumerated() {
-#if DEBUG
-            LinxDiagnostics.podRepository.debug("queryChatEndpoints attempt index=\(index, privacy: .public) total=\(endpoints.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .public) path=\(endpoint.path, privacy: .private) sparqlBytes=\(sparql.utf8.count, privacy: .public)")
-#endif
+            LinxDiagnostics.podRepository.info("queryChatEndpoints attempt index=\(index, privacy: .public) total=\(endpoints.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .private) path=\(endpoint.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: endpoint), privacy: .public) sparqlBytes=\(sparql.utf8.count, privacy: .public)")
             do {
                 let response = try await client.query(endpoint: endpoint, sparql: sparql)
                 didReceiveResponse = true
                 let mapping = mapThreadBindings(response.results.bindings)
-#if DEBUG
-                LinxDiagnostics.podRepository.debug("queryChatEndpoints response index=\(index, privacy: .public) bindings=\(mapping.rawBindingCount, privacy: .public) mapped=\(mapping.summaries.count, privacy: .public)")
+                LinxDiagnostics.podRepository.info("queryChatEndpoints response index=\(index, privacy: .public) bindings=\(mapping.rawBindingCount, privacy: .public) mapped=\(mapping.summaries.count, privacy: .public)")
                 LinxDiagnostics.podRepository.debug("listThreads mapped rawBindings=\(mapping.rawBindingCount, privacy: .public) mapped=\(mapping.summaries.count, privacy: .public) missingThread=\(mapping.missingThreadCount, privacy: .public) missingCreatedAt=\(mapping.missingCreatedAtCount, privacy: .public) invalidCreatedAt=\(mapping.invalidCreatedAtCount, privacy: .public) createdAtFallback=\(mapping.createdAtFallbackCount, privacy: .public) emptyThreadID=\(mapping.emptyThreadIDCount, privacy: .public)")
-#endif
                 if mapping.summaries.isEmpty == false {
-#if DEBUG
-                    LinxDiagnostics.podRepository.debug("queryChatEndpoints selected mapped index=\(index, privacy: .public) mapped=\(mapping.summaries.count, privacy: .public)")
-#endif
+                    LinxDiagnostics.podRepository.info("queryChatEndpoints selected mapped index=\(index, privacy: .public) mapped=\(mapping.summaries.count, privacy: .public)")
                     return mapping.summaries
                 }
             } catch {
                 lastError = error
-#if DEBUG
-                LinxDiagnostics.podRepository.error("queryChatEndpoints endpoint error index=\(index, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
-#endif
+                LinxDiagnostics.podRepository.error("queryChatEndpoints endpoint error index=\(index, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             }
         }
 
         if didReceiveResponse {
-#if DEBUG
-            LinxDiagnostics.podRepository.debug("queryChatEndpoints selected emptyMapped after all endpoints")
-#endif
+            LinxDiagnostics.podRepository.info("queryChatEndpoints selected emptyMapped after all endpoints")
             return []
         }
 
-#if DEBUG
-        LinxDiagnostics.podRepository.error("queryChatEndpoints failed all endpoints error=\((lastError ?? LinxAppError.podWriteFailed("Pod query failed.")).localizedDescription, privacy: .private)")
-#endif
+        let resolvedError = lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
+        LinxDiagnostics.podRepository.error("queryChatEndpoints failed all endpoints error=\(resolvedError.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(resolvedError.localizedDescription), privacy: .public)")
         throw lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
     }
 
@@ -336,40 +319,29 @@ struct PodChatRepository {
 
         let endpoints = PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID)
         for (index, endpoint) in endpoints.enumerated() {
-#if DEBUG
-            LinxDiagnostics.podRepository.debug("queryChatEndpoints attempt index=\(index, privacy: .public) total=\(endpoints.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .public) path=\(endpoint.path, privacy: .private) sparqlBytes=\(sparql.utf8.count, privacy: .public)")
-#endif
+            LinxDiagnostics.podRepository.info("queryChatEndpoints attempt index=\(index, privacy: .public) total=\(endpoints.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .private) path=\(endpoint.path, privacy: .private) urlHash=\(LinxDiagnostics.fingerprint(url: endpoint), privacy: .public) sparqlBytes=\(sparql.utf8.count, privacy: .public)")
             do {
                 let response = try await client.query(endpoint: endpoint, sparql: sparql)
                 let bindingCount = response.results.bindings.count
-#if DEBUG
-                LinxDiagnostics.podRepository.debug("queryChatEndpoints response index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
-#endif
+                LinxDiagnostics.podRepository.info("queryChatEndpoints response index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
                 if response.results.bindings.isEmpty == false {
-#if DEBUG
-                    LinxDiagnostics.podRepository.debug("queryChatEndpoints selected nonEmpty index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
-#endif
+                    LinxDiagnostics.podRepository.info("queryChatEndpoints selected nonEmpty index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
                     return response
                 }
                 emptyResponse = emptyResponse ?? response
             } catch {
                 lastError = error
-#if DEBUG
-                LinxDiagnostics.podRepository.error("queryChatEndpoints endpoint error index=\(index, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
-#endif
+                LinxDiagnostics.podRepository.error("queryChatEndpoints endpoint error index=\(index, privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
             }
         }
 
         if let emptyResponse {
-#if DEBUG
-            LinxDiagnostics.podRepository.debug("queryChatEndpoints selected firstEmpty after all endpoints")
-#endif
+            LinxDiagnostics.podRepository.info("queryChatEndpoints selected firstEmpty after all endpoints")
             return emptyResponse
         }
 
-#if DEBUG
-        LinxDiagnostics.podRepository.error("queryChatEndpoints failed all endpoints error=\((lastError ?? LinxAppError.podWriteFailed("Pod query failed.")).localizedDescription, privacy: .private)")
-#endif
+        let resolvedError = lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
+        LinxDiagnostics.podRepository.error("queryChatEndpoints failed all endpoints error=\(resolvedError.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(resolvedError.localizedDescription), privacy: .public)")
         throw lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
     }
 }

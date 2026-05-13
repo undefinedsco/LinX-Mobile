@@ -1,8 +1,6 @@
 import ExyteChat
 import Foundation
-#if DEBUG
 import OSLog
-#endif
 
 @MainActor
 final class ChatExperienceModel: ObservableObject {
@@ -81,42 +79,28 @@ final class ChatExperienceModel: ObservableObject {
     private func runBootstrap() async {
         bootstrapState = .running
         errorMessage = nil
-#if DEBUG
         let startedAt = Date()
-        LinxDiagnostics.threadsModel.debug("bootstrap start")
-#endif
+        LinxDiagnostics.threadsModel.info("bootstrap start")
 
         do {
             let webID = try authController.webID()
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("bootstrap webID resolved webID=\(webID, privacy: .private)")
-#endif
+            LinxDiagnostics.threadsModel.info("bootstrap webID resolved webID=\(webID, privacy: .private) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
             activeModelID = try await modelCatalogClient.preferredModelID()
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("bootstrap model resolved modelID=\(self.activeModelID, privacy: .public)")
-#endif
+            LinxDiagnostics.threadsModel.info("bootstrap model resolved modelID=\(self.activeModelID, privacy: .public)")
             try await repository.bootstrap(webID: webID, modelID: activeModelID)
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("bootstrap repository ready")
-#endif
+            LinxDiagnostics.threadsModel.info("bootstrap repository ready")
             try await reloadThreads(selectFirstIfNeeded: true)
             bootstrapState = .succeeded
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.threadsModel.debug("bootstrap succeeded threads=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) durationMs=\(durationMs, privacy: .public)")
-#endif
+            LinxDiagnostics.threadsModel.info("bootstrap succeeded threads=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) selectedHash=\(LinxDiagnostics.fingerprint(self.selectedThread?.id), privacy: .public) durationMs=\(durationMs, privacy: .public)")
         } catch is CancellationError {
             bootstrapState = .idle
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("bootstrap cancelled")
-#endif
+            LinxDiagnostics.threadsModel.info("bootstrap cancelled")
         } catch {
             errorMessage = error.localizedDescription
             bootstrapState = .failed
-#if DEBUG
             let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) durationMs=\(durationMs, privacy: .public)")
-#endif
+            LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public) durationMs=\(durationMs, privacy: .public)")
         }
     }
 
@@ -287,22 +271,16 @@ final class ChatExperienceModel: ObservableObject {
 
     private func reloadThreads(selectFirstIfNeeded: Bool, reloadMessages: Bool = true) async throws {
         let webID = try authController.webID()
-#if DEBUG
         let startedAt = Date()
-        LinxDiagnostics.threadsModel.debug("reloadThreads start selectFirst=\(selectFirstIfNeeded, privacy: .public) reloadMessages=\(reloadMessages, privacy: .public) previousCount=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) webID=\(webID, privacy: .private)")
-#endif
+        LinxDiagnostics.threadsModel.info("reloadThreads start selectFirst=\(selectFirstIfNeeded, privacy: .public) reloadMessages=\(reloadMessages, privacy: .public) previousCount=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) selectedHash=\(LinxDiagnostics.fingerprint(self.selectedThread?.id), privacy: .public) webID=\(webID, privacy: .private) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
         let loaded = try await repository.listThreads(webID: webID)
         threads = loaded.sorted { $0.updatedAt > $1.updatedAt }
-#if DEBUG
         let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        LinxDiagnostics.threadsModel.debug("reloadThreads repository returned loaded=\(loaded.count, privacy: .public) sorted=\(self.threads.count, privacy: .public) durationMs=\(durationMs, privacy: .public)")
-#endif
+        LinxDiagnostics.threadsModel.info("reloadThreads repository returned loaded=\(loaded.count, privacy: .public) sorted=\(self.threads.count, privacy: .public) durationMs=\(durationMs, privacy: .public)")
 
         if let selectedThread, let updated = threads.first(where: { $0.id == selectedThread.id }) {
             self.selectedThread = updated
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("reloadThreads updated selected threadID=\(updated.id, privacy: .private) reloadMessages=\(reloadMessages, privacy: .public)")
-#endif
+            LinxDiagnostics.threadsModel.info("reloadThreads updated selected threadID=\(updated.id, privacy: .private) threadHash=\(LinxDiagnostics.fingerprint(updated.id), privacy: .public) reloadMessages=\(reloadMessages, privacy: .public)")
             if reloadMessages {
                 await loadMessagesForCurrentThread()
             }
@@ -312,16 +290,12 @@ final class ChatExperienceModel: ObservableObject {
         if selectFirstIfNeeded, let first = threads.first {
             selectedThread = first
             hasLoadedAllMessages = false
-#if DEBUG
-            LinxDiagnostics.threadsModel.debug("reloadThreads selected first threadID=\(first.id, privacy: .private)")
-#endif
+            LinxDiagnostics.threadsModel.info("reloadThreads selected first threadID=\(first.id, privacy: .private) threadHash=\(LinxDiagnostics.fingerprint(first.id), privacy: .public)")
             await loadMessagesForCurrentThread()
             return
         }
 
-#if DEBUG
-        LinxDiagnostics.threadsModel.debug("reloadThreads completed without selection threadCount=\(self.threads.count, privacy: .public) selectFirst=\(selectFirstIfNeeded, privacy: .public)")
-#endif
+        LinxDiagnostics.threadsModel.info("reloadThreads completed without selection threadCount=\(self.threads.count, privacy: .public) selectFirst=\(selectFirstIfNeeded, privacy: .public)")
     }
 
     private func invalidateMessageLoads() {

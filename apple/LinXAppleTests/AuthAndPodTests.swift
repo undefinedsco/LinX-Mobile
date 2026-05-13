@@ -38,6 +38,31 @@ final class AuthAndPodTests: XCTestCase {
         ])
     }
 
+    func testDiagnosticsFingerprintIsStableAndDoesNotExposeSensitiveValues() throws {
+        let webID = "https://alice.example/profile/card#me"
+        let threadID = "thread-secret-123"
+        let url = try XCTUnwrap(URL(string: "https://alice.example/.data/chat/ios-default/index.ttl#\(threadID)"))
+
+        let webIDFingerprint = LinxDiagnostics.fingerprint(webID)
+        XCTAssertEqual(webIDFingerprint, LinxDiagnostics.fingerprint("  \(webID)  "))
+        XCTAssertEqual(webIDFingerprint.count, 16)
+        XCTAssertTrue(webIDFingerprint.allSatisfy(\.isHexDigit))
+        XCTAssertFalse(webIDFingerprint.contains("alice"))
+        XCTAssertFalse(webIDFingerprint.contains("https"))
+        XCTAssertFalse(webIDFingerprint.contains("profile"))
+        XCTAssertNotEqual(webIDFingerprint, webID)
+
+        let urlFingerprint = LinxDiagnostics.fingerprint(url: url)
+        XCTAssertEqual(urlFingerprint, LinxDiagnostics.fingerprint(url.absoluteString))
+        XCTAssertEqual(urlFingerprint.count, 16)
+        XCTAssertFalse(urlFingerprint.contains("alice.example"))
+        XCTAssertFalse(urlFingerprint.contains(".data"))
+        XCTAssertFalse(urlFingerprint.contains(threadID))
+
+        XCTAssertEqual(LinxDiagnostics.fingerprint(nil), "empty")
+        XCTAssertEqual(LinxDiagnostics.fingerprint("   "), "empty")
+    }
+
     func testLinxDateParseSupportsPodCompatibleFormats() throws {
         XCTAssertEqual(LinxDate.parse("1970-01-01T00:00:00.123Z")?.timeIntervalSince1970 ?? -1, 0.123, accuracy: 0.001)
         XCTAssertEqual(LinxDate.parse("1970-01-01T00:00:00Z")?.timeIntervalSince1970 ?? -1, 0, accuracy: 0.001)
