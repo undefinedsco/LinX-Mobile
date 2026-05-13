@@ -16,6 +16,7 @@
 		24AE1E8FA54E7BB188D123E9 /* ExyteMessageAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1BBB5D9C7C55051A4E4CF5 /* ExyteMessageAdapter.swift */; };
 		2F7355E3DE4AD1D06C66A897 /* AuthAndPodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */; };
 		32205F0C4B4FB77361589212 /* LinXAppleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */; };
+		58A614B37DBE02969A1F6346 /* LinxRuntimeTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */; };
 		5D781AA2D354AD8AC8F89C38 /* JWTUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F0564592561E6695E1185C /* JWTUtilities.swift */; };
 		60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */; };
 		6D25A62B85953B90A844F2BA /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FA4264569D40F354DB2DBD /* KeychainSessionStore.swift */; };
@@ -82,6 +83,7 @@
 		A18191DD2781629399F84F4D /* ChatScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScene.swift; sourceTree = "<group>"; };
 		A1E161939EF69E2A2E0360EF /* PodSPARQLTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodSPARQLTypes.swift; sourceTree = "<group>"; };
 		A695E84B62B808B522B9C68E /* DynamicClientRegistrar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicClientRegistrar.swift; sourceTree = "<group>"; };
+		ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxRuntimeTargetResolver.swift; sourceTree = "<group>"; };
 		B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthAndPodTests.swift; sourceTree = "<group>"; };
 		B7D0FB80BB16FF9720D7468E /* ThreadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadListView.swift; sourceTree = "<group>"; };
 		C08D5B19111A3BBEF346C9A7 /* UIApplication+TopController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIApplication+TopController.swift"; sourceTree = "<group>"; };
@@ -235,6 +237,7 @@
 				305879D2560EBEF23B4DBB2C /* DomainModels.swift */,
 				CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */,
 				277B37722CE6C4A8D6AC6E12 /* LinxDate.swift */,
+				ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */,
 				E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */,
 				8D26D8E4AC4C548D2B7304F3 /* RootView.swift */,
 				C08D5B19111A3BBEF346C9A7 /* UIApplication+TopController.swift */,
@@ -366,6 +369,7 @@
 				D694CE789F763D924B784FCA /* LinxDate.swift in Sources */,
 				D6B8DC3DAD8E4B3205765A32 /* LinxModelCatalogClient.swift in Sources */,
 				D77450385BCEDBE1ECAC9614 /* LinxOpenAIChatService.swift in Sources */,
+				58A614B37DBE02969A1F6346 /* LinxRuntimeTargetResolver.swift in Sources */,
 				60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */,
 				B3A570E7549905A3577FC2D5 /* LoginView.swift in Sources */,
 				230518DD5B299EA2BC2015B0 /* OIDCDiscoveryClient.swift in Sources */,

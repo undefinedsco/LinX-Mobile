@@ -76,8 +76,24 @@ enum PodSPARQLBuilder {
         """
     }
 
-    static func messagesQuery(threadURI: String, limit: Int, offset: Int) -> String {
-        """
+    static func messagesQuery(threadURI: String, limit: Int?, offset: Int) -> String {
+        let pagination: String
+        if let limit {
+            pagination = """
+
+            LIMIT \(limit)
+            OFFSET \(offset)
+            """
+        } else if offset > 0 {
+            pagination = """
+
+            OFFSET \(offset)
+            """
+        } else {
+            pagination = ""
+        }
+
+        return """
         \(prefixes)
 
         SELECT ?message ?maker ?role ?content ?richContent ?status ?createdAt ?updatedAt
@@ -93,8 +109,7 @@ enum PodSPARQLBuilder {
           OPTIONAL { ?message dcterms:modified ?updatedAt . }
         }
         ORDER BY DESC(?createdAt)
-        LIMIT \(limit)
-        OFFSET \(offset)
+        \(pagination)
         """
     }
 

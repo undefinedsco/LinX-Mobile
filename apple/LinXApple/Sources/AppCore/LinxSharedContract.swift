@@ -6,12 +6,12 @@ enum LinxSharedContract {
         static let bundleIdentifier = "co.undefineds.linx.apple"
         static let defaultModelID = "linx-lite"
         static let fallbackModelIDs = ["linx", defaultModelID]
-        static let defaultChatID = "cli-default"
-        static let defaultAgentID = "linx-cli-assistant"
-        static let defaultChatTitle = "LinX CLI"
-        static let defaultAgentName = "LinX CLI Assistant"
-        static let defaultThreadTitle = "CLI Session"
-        static let defaultThreadWorkspace = "https://undefineds.co/linx/apple/workspace/default"
+        static let defaultChatID = "ios-default"
+        static let defaultAgentID = "linx-ios-assistant"
+        static let defaultChatTitle = "LinX iOS"
+        static let defaultAgentName = "LinX iOS Assistant"
+        static let defaultThreadTitle = "iOS Session"
+        static let defaultThreadWorkspace = "co.undefineds.linx.apple://workspace/default"
     }
 
     enum Runtime {
@@ -25,26 +25,15 @@ enum LinxSharedContract {
         static let runtimeBaseURL = URL(string: apiOrigin)!
 
         static func resolveRuntimeOrigin(forIssuerURL issuerURL: URL) -> URL {
-            if let host = issuerURL.host, identityHosts.contains(host) {
-                return runtimeBaseURL
-            }
-            return issuerURL
+            LinxRuntimeTargetResolver.resolveRuntimeOrigin(forIssuerURL: issuerURL)
         }
 
         static func apiBaseURL(runtimeBaseURL: URL, version: String = apiVersion) -> URL {
-            let trimmed = runtimeBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if trimmed.hasSuffix("/\(version)") {
-                return URL(string: trimmed)!
-            }
-            return URL(string: "\(trimmed)/\(version)")!
+            LinxRuntimeTargetResolver.apiBaseURL(runtimeBaseURL: runtimeBaseURL, version: version)
         }
 
         static func endpoint(runtimeBaseURL: URL, version: String = apiVersion, path: String) -> URL {
-            path
-                .split(separator: "/")
-                .reduce(apiBaseURL(runtimeBaseURL: runtimeBaseURL, version: version)) { url, component in
-                    url.appendingPathComponent(String(component), isDirectory: false)
-                }
+            LinxRuntimeTargetResolver.endpoint(runtimeBaseURL: runtimeBaseURL, version: version, path: path)
         }
     }
 

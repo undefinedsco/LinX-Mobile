@@ -160,6 +160,21 @@ final class ChatExperienceModel: ObservableObject {
         messages.first(where: { $0.id == id })
     }
 
+    nonisolated static func makeCompletionMessages(
+        history: [LinxChatMessage],
+        userMessage: LinxChatMessage,
+        threadID: String
+    ) -> [LinxChatMessage] {
+        (history + [userMessage])
+            .filter { $0.threadID == threadID }
+            .sorted {
+                if $0.createdAt == $1.createdAt {
+                    return $0.id < $1.id
+                }
+                return $0.createdAt < $1.createdAt
+            }
+    }
+
     private func executeSend(text: String) async {
         isSending = true
         errorMessage = nil
@@ -167,15 +182,18 @@ final class ChatExperienceModel: ObservableObject {
         do {
             let webID = try authController.webID()
             let thread = try await ensureThread(for: text, webID: webID)
+            let persistedHistory = try await repository.loadAllMessages(webID: webID, threadID: thread.id)
 
             let userMessage = try await repository.appendUserMessage(webID: webID, threadID: thread.id, content: text)
             messages.append(userMessage)
 
-            let history = messages
-                .filter { $0.threadID == thread.id }
-                .sorted { $0.createdAt < $1.createdAt }
+            let completionMessages = Self.makeCompletionMessages(
+                history: persistedHistory,
+                userMessage: userMessage,
+                threadID: thread.id
+            )
 
-            let completion = try await runtimeService.createCompletionResult(messages: history, modelID: activeModelID)
+            let completion = try await runtimeService.createCompletionResult(messages: completionMessages, modelID: activeModelID)
             let assistantMessage = try await repository.appendAssistantMessage(
                 webID: webID,
                 threadID: thread.id,

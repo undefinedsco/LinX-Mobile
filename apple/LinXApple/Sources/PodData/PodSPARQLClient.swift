@@ -44,12 +44,26 @@ final class PodSPARQLClient {
         var request = URLRequest(url: url, timeoutInterval: requestTimeout)
         request.httpMethod = "HEAD"
 
-        let (_, response) = try await authorizedData(for: request)
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 404 {
+        let (data, response) = try await authorizedData(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return true
+        }
+
+        if 200 ..< 300 ~= httpResponse.statusCode {
+            return true
+        }
+
+        if httpResponse.statusCode == 404 {
             return false
         }
 
-        return true
+        let detail = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+        if LinxRuntimeRequestError.http(status: httpResponse.statusCode, responseBody: detail).authExpired {
+            authProvider.expireSession(message: AppConstants.loginExpiredMessage)
+            throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
+        }
+
+        throw LinxAppError.podWriteFailed("Pod HEAD request failed (\(httpResponse.statusCode)): \(detail)")
     }
 
     func putContainer(_ url: URL) async throws {

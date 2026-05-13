@@ -23,6 +23,6 @@ enum AppConstants {
 
     static let pageSize = 20
     static let podRequestTimeout: TimeInterval = 20
-    static let runtimeRequestTimeout: TimeInterval = 30
+    static let runtimeRequestTimeout: TimeInterval = 10 * 60
     static let tokenRefreshTimeout: TimeInterval = 30
 }

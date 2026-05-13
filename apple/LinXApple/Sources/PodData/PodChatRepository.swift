@@ -47,6 +47,19 @@ struct PodChatRepository {
         limit: Int,
         offset: Int = 0
     ) async throws -> [LinxChatMessage] {
+        try await loadMessagesInternal(webID: webID, threadID: threadID, limit: limit, offset: offset)
+    }
+
+    func loadAllMessages(webID: String, threadID: String) async throws -> [LinxChatMessage] {
+        try await loadMessagesInternal(webID: webID, threadID: threadID, limit: nil, offset: 0)
+    }
+
+    private func loadMessagesInternal(
+        webID: String,
+        threadID: String,
+        limit: Int?,
+        offset: Int
+    ) async throws -> [LinxChatMessage] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let threadURI = PodStoragePaths.threadURI(baseURL: baseURL, chatID: AppConstants.defaultChatID, threadID: threadID)
         let response = try await queryChatEndpoints(

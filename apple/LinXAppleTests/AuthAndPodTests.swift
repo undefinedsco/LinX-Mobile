@@ -135,6 +135,29 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(try LinxModelCatalogClient.pickPreferredModelID(from: []), AppConstants.defaultModelID)
     }
 
+    func testRuntimeResolverMapsCloudIssuerToRuntimeOrigin() throws {
+        let runtimeOrigin = LinxRuntimeTargetResolver.resolveRuntimeOrigin(forIssuerURL: AppConstants.issuerURL)
+
+        XCTAssertEqual(runtimeOrigin.absoluteString, "https://api.undefineds.co")
+    }
+
+    func testRuntimeResolverKeepsCustomIssuerAsRuntimeOrigin() throws {
+        let runtimeOrigin = LinxRuntimeTargetResolver.resolveRuntimeOrigin(
+            forIssuerURL: URL(string: "https://pods.example/runtime/")!
+        )
+
+        XCTAssertEqual(runtimeOrigin.absoluteString, "https://pods.example/runtime")
+    }
+
+    func testRuntimeResolverDoesNotDuplicateV1() throws {
+        let apiBaseURL = LinxRuntimeTargetResolver.apiBaseURL(
+            runtimeBaseURL: URL(string: "https://api.undefineds.co/v1/")!,
+            version: AppConstants.runtimeVersion
+        )
+
+        XCTAssertEqual(apiBaseURL.absoluteString, "https://api.undefineds.co/v1")
+    }
+
     func testRuntimeRequestBodyMatchesCLIChatCompletionContract() throws {
         let messages = [
             LinxChatMessage(
@@ -255,6 +278,55 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "https://api.undefineds.co/v1/chat/completions")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
         XCTAssertEqual(request.timeoutInterval, AppConstants.runtimeRequestTimeout)
+        XCTAssertEqual(AppConstants.runtimeRequestTimeout, 600)
+    }
+
+    func testAllMessagesQueryOmitsPaginationLimit() {
+        let query = PodSPARQLBuilder.messagesQuery(
+            threadURI: "https://pod.example/.data/chat/cli-default/index.ttl#thread-1",
+            limit: nil,
+            offset: 0
+        )
+
+        XCTAssertFalse(query.contains("LIMIT"))
+        XCTAssertFalse(query.contains("OFFSET"))
+    }
+
+    func testCompletionContextUsesFullPersistedHistoryPlusCurrentUserMessage() {
+        let history = (0 ..< 25).map { index in
+            makeMessage(
+                id: "history-\(index)",
+                threadID: "thread-1",
+                role: index.isMultiple(of: 2) ? .user : .assistant,
+                content: "history \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        let otherThreadMessage = makeMessage(
+            id: "other-thread",
+            threadID: "thread-2",
+            role: .user,
+            content: "ignore me",
+            createdAt: Date(timeIntervalSince1970: 3)
+        )
+        let currentUserMessage = makeMessage(
+            id: "current",
+            threadID: "thread-1",
+            role: .user,
+            content: "current prompt",
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let completionMessages = ChatExperienceModel.makeCompletionMessages(
+            history: history + [otherThreadMessage],
+            userMessage: currentUserMessage,
+            threadID: "thread-1"
+        )
+
+        XCTAssertEqual(completionMessages.count, 26)
+        XCTAssertEqual(completionMessages.first?.id, "history-0")
+        XCTAssertEqual(completionMessages.last?.id, "current")
+        XCTAssertFalse(completionMessages.contains(where: { $0.threadID == "thread-2" }))
     }
 
     @MainActor
@@ -306,6 +378,103 @@ final class AuthAndPodTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testPodClientHeadTreats404AsMissing() async throws {
+        let transport = PodHTTPTransport { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let client = PodSPARQLClient(
+            authProvider: TestPodAuthProvider(),
+            transport: transport
+        )
+
+        let exists = try await client.head(URL(string: "https://pod.example/.data/missing.ttl")!)
+
+        XCTAssertFalse(exists)
+    }
+
+    @MainActor
+    func testPodClientHeadRefreshesOnceOnUnauthorized() async throws {
+        let statuses = HTTPStatusQueue([401, 204])
+        let authProvider = RecordingPodAuthProvider()
+        let transport = PodHTTPTransport { request in
+            let status = await statuses.nextStatus()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data("Unauthorized".utf8), response)
+        }
+        let client = PodSPARQLClient(authProvider: authProvider, transport: transport)
+
+        let exists = try await client.head(URL(string: "https://pod.example/.data/chat/")!)
+
+        XCTAssertTrue(exists)
+        XCTAssertEqual(authProvider.forceRefreshCalls, [false, true])
+        XCTAssertTrue(authProvider.expiredMessages.isEmpty)
+    }
+
+    @MainActor
+    func testPodClientHeadExpiresSessionWhenUnauthorizedAfterRefresh() async throws {
+        let statuses = HTTPStatusQueue([401, 401])
+        let authProvider = RecordingPodAuthProvider()
+        let transport = PodHTTPTransport { request in
+            let status = await statuses.nextStatus()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data("Unauthorized".utf8), response)
+        }
+        let client = PodSPARQLClient(authProvider: authProvider, transport: transport)
+
+        do {
+            _ = try await client.head(URL(string: "https://pod.example/.data/chat/")!)
+            XCTFail("Expected expired session error")
+        } catch let error as LinxAppError {
+            XCTAssertEqual(error, .authFailed(AppConstants.loginExpiredMessage))
+        }
+
+        XCTAssertEqual(authProvider.forceRefreshCalls, [false, true])
+        XCTAssertEqual(authProvider.expiredMessages, [AppConstants.loginExpiredMessage])
+    }
+
+    @MainActor
+    func testPodClientHeadThrowsForServerFailure() async throws {
+        let transport = PodHTTPTransport { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data("server down".utf8), response)
+        }
+        let client = PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport)
+
+        do {
+            _ = try await client.head(URL(string: "https://pod.example/.data/chat/")!)
+            XCTFail("Expected Pod HEAD failure")
+        } catch let error as LinxAppError {
+            guard case .podWriteFailed(let detail) = error else {
+                XCTFail("Expected podWriteFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(detail.contains("500"))
+            XCTAssertTrue(detail.contains("server down"))
+        }
+    }
+
     func testRuntimeAuthExpiredErrorMatchesCLIInvalidSolidTokenMapping() {
         let error = LinxRuntimeRequestError.http(status: 401, responseBody: #"{"error":"invalid solid token"}"#)
 
@@ -340,6 +509,7 @@ final class AuthAndPodTests: XCTestCase {
 
         XCTAssertTrue(patch.contains("CLI Session"))
         XCTAssertTrue(patch.contains("udfs:workspace <\(AppConstants.defaultThreadWorkspace)>"))
+        XCTAssertEqual(AppConstants.defaultThreadWorkspace, "co.undefineds.linx.apple://workspace/default")
     }
 
     func testPKCERequestUsesExpectedRedirectAndScopes() {
@@ -366,6 +536,30 @@ final class AuthAndPodTests: XCTestCase {
         let headerData = try! JSONSerialization.data(withJSONObject: header)
         let payloadData = try! JSONSerialization.data(withJSONObject: payload)
         return "\(encodeBase64URL(headerData)).\(encodeBase64URL(payloadData))."
+    }
+
+    private func makeMessage(
+        id: String,
+        threadID: String,
+        role: LinxMessageRole,
+        content: String,
+        createdAt: Date
+    ) -> LinxChatMessage {
+        let maker = role == .assistant
+            ? "https://alice.example/.data/agents/linx-cli-assistant.ttl"
+            : testWebID
+
+        return LinxChatMessage(
+            id: id,
+            threadID: threadID,
+            maker: maker,
+            role: role,
+            content: content,
+            richContent: nil,
+            status: .sent,
+            createdAt: createdAt,
+            updatedAt: nil
+        )
     }
 
     private func encodeBase64URL(_ data: Data) -> String {
@@ -454,6 +648,21 @@ private actor URLRequestLog {
     }
 }
 
+private actor HTTPStatusQueue {
+    private var statuses: [Int]
+
+    init(_ statuses: [Int]) {
+        self.statuses = statuses
+    }
+
+    func nextStatus() -> Int {
+        if statuses.isEmpty {
+            return 204
+        }
+        return statuses.removeFirst()
+    }
+}
+
 private struct MockHTTPRoute: Sendable {
     let status: Int
     let body: String
@@ -474,4 +683,19 @@ private final class TestPodAuthProvider: PodSPARQLAuthProviding {
     }
 
     func expireSession(message _: String) {}
+}
+
+@MainActor
+private final class RecordingPodAuthProvider: PodSPARQLAuthProviding {
+    private(set) var forceRefreshCalls: [Bool] = []
+    private(set) var expiredMessages: [String] = []
+
+    func accessToken(forceRefresh: Bool) async throws -> String {
+        forceRefreshCalls.append(forceRefresh)
+        return forceRefresh ? "refreshed-token" : "test-token"
+    }
+
+    func expireSession(message: String) {
+        expiredMessages.append(message)
+    }
 }
