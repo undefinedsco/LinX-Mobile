@@ -1,4 +1,7 @@
 import SwiftUI
+#if DEBUG
+import OSLog
+#endif
 
 struct ThreadListView: View {
     let threads: [LinxThreadSummary]
@@ -34,6 +37,14 @@ struct ThreadListView: View {
             }
             .listStyle(.plain)
             .navigationTitle("Threads")
+#if DEBUG
+            .onAppear {
+                LinxDiagnostics.threadsUI.debug("ThreadListView appear count=\(self.threads.count, privacy: .public) selected=\(self.selectedThreadID ?? "none", privacy: .private)")
+            }
+            .onChange(of: threads.count) { _, newCount in
+                LinxDiagnostics.threadsUI.debug("ThreadListView thread count changed count=\(newCount, privacy: .public) selected=\(self.selectedThreadID ?? "none", privacy: .private)")
+            }
+#endif
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Logout", role: .destructive, action: onLogout)

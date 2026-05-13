@@ -529,6 +529,69 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(request.scope, AppConstants.loginScopes.joined(separator: " "))
         XCTAssertNotNil(request.codeChallenge)
         XCTAssertNotNil(request.codeVerifier)
+        XCTAssertEqual(request.additionalParameters?["prompt"], "consent")
+    }
+
+    @MainActor
+    func testLoginRejectsAuthStateWithoutRefreshToken() async throws {
+        let store = InMemoryAuthSessionStore()
+        let authState = makeAuthState(refreshToken: nil)
+        let controller = makeAuthController(keychain: store, authorizationAuthState: authState)
+
+        await controller.login()
+
+        XCTAssertEqual(controller.phase, .unauthenticated)
+        XCTAssertNil(controller.session)
+        XCTAssertEqual(controller.lastErrorMessage, AppConstants.loginExpiredMessage)
+        XCTAssertNil(store.authStateData)
+        XCTAssertNil(store.sessionMetadata)
+        XCTAssertEqual(store.clearAllCount, 1)
+    }
+
+    @MainActor
+    func testRestoreClearsPersistedAuthStateWithoutRefreshToken() async throws {
+        let store = InMemoryAuthSessionStore()
+        store.authStateData = try archivedAuthState(refreshToken: nil)
+        store.sessionMetadata = .init(webID: testWebID, clientID: "client-id")
+        let controller = makeAuthController(keychain: store)
+
+        await controller.restore()
+
+        XCTAssertEqual(controller.phase, .unauthenticated)
+        XCTAssertNil(controller.session)
+        XCTAssertEqual(controller.lastErrorMessage, AppConstants.loginExpiredMessage)
+        XCTAssertNil(store.authStateData)
+        XCTAssertNil(store.sessionMetadata)
+        XCTAssertEqual(store.clearSessionCount, 1)
+    }
+
+    @MainActor
+    func testRestoreAcceptsPersistedAuthStateWithRefreshToken() async throws {
+        let store = InMemoryAuthSessionStore()
+        store.authStateData = try archivedAuthState(refreshToken: "refresh-token")
+        store.sessionMetadata = .init(webID: testWebID, clientID: "client-id")
+        let controller = makeAuthController(keychain: store)
+
+        await controller.restore()
+
+        XCTAssertEqual(controller.phase, .authenticated)
+        XCTAssertEqual(controller.session, .init(webID: testWebID, clientID: "client-id"))
+        XCTAssertNil(controller.lastErrorMessage)
+        XCTAssertEqual(store.clearSessionCount, 0)
+    }
+
+    func testMissingRefreshTokenErrorMapsToLoginExpiredMessage() {
+        let sourceError = NSError(
+            domain: "org.openid.appauth",
+            code: -1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Unable to refresh expired token without a refresh token.",
+            ]
+        )
+
+        let mapped = AuthSessionController.mapTokenRefreshError(sourceError)
+
+        XCTAssertEqual(mapped as? LinxAppError, .authFailed(AppConstants.loginExpiredMessage))
     }
 
     private func makeJWT(payload: [String: String]) -> String {
@@ -567,6 +630,69 @@ final class AuthAndPodTests: XCTestCase {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func makeDiscoveryDocument() -> OIDCDiscoveryDocument {
+        OIDCDiscoveryDocument(
+            issuer: AppConstants.issuerURL,
+            authorizationEndpoint: URL(string: "https://id.undefineds.co/.oidc/auth")!,
+            tokenEndpoint: URL(string: "https://id.undefineds.co/.oidc/token")!,
+            registrationEndpoint: URL(string: "https://id.undefineds.co/.oidc/reg")!
+        )
+    }
+
+    @MainActor
+    private func makeAuthController(
+        keychain: InMemoryAuthSessionStore,
+        authorizationAuthState: OIDAuthState? = nil
+    ) -> AuthSessionController {
+        let discovery = makeDiscoveryDocument()
+        return AuthSessionController(
+            discoverOIDC: { discovery },
+            registerDynamicClient: { _ in "client-id" },
+            keychain: keychain,
+            presenterProvider: { UIViewController() },
+            authorizationPresenter: { _, _ in
+                guard let authorizationAuthState else {
+                    throw LinxAppError.authFailed("Missing fake authorization state.")
+                }
+                return authorizationAuthState
+            }
+        )
+    }
+
+    private func makeAuthState(refreshToken: String?) -> OIDAuthState {
+        let configuration = makeDiscoveryDocument().serviceConfiguration
+        let tokenRequest = OIDTokenRequest(
+            configuration: configuration,
+            grantType: OIDGrantTypeAuthorizationCode,
+            authorizationCode: "authorization-code",
+            redirectURL: AppConstants.redirectURL,
+            clientID: "client-id",
+            clientSecret: nil,
+            scopes: AppConstants.loginScopes,
+            refreshToken: nil,
+            codeVerifier: "code-verifier",
+            additionalParameters: nil
+        )
+        var parameters: [String: NSObject & NSCopying] = [
+            "access_token": "access-token" as NSString,
+            "token_type": "Bearer" as NSString,
+            "expires_in": NSNumber(value: 3600),
+            "id_token": makeJWT(payload: ["webid": testWebID]) as NSString,
+        ]
+        if let refreshToken {
+            parameters["refresh_token"] = refreshToken as NSString
+        }
+        let tokenResponse = OIDTokenResponse(request: tokenRequest, parameters: parameters)
+        return OIDAuthState(authorizationResponse: nil, tokenResponse: tokenResponse, registrationResponse: nil)
+    }
+
+    private func archivedAuthState(refreshToken: String?) throws -> Data {
+        try NSKeyedArchiver.archivedData(
+            withRootObject: makeAuthState(refreshToken: refreshToken),
+            requiringSecureCoding: true
+        )
     }
 
     private func chatEndpointURLs() throws -> (root: String, concrete: String) {
@@ -645,6 +771,52 @@ private actor URLRequestLog {
         if let url = request.url {
             urls.append(url)
         }
+    }
+}
+
+@MainActor
+private final class InMemoryAuthSessionStore: AuthSessionStoring {
+    var authStateData: Data?
+    var sessionMetadata: StoredAuthSessionMetadata?
+    var registeredClientID: String?
+    private(set) var clearSessionCount = 0
+    private(set) var clearAllCount = 0
+
+    func saveAuthState(_ data: Data) throws {
+        authStateData = data
+    }
+
+    func loadAuthState() throws -> Data? {
+        authStateData
+    }
+
+    func saveSessionMetadata(_ metadata: StoredAuthSessionMetadata) throws {
+        sessionMetadata = metadata
+    }
+
+    func loadSessionMetadata() throws -> StoredAuthSessionMetadata? {
+        sessionMetadata
+    }
+
+    func saveRegisteredClientID(_ clientID: String) throws {
+        registeredClientID = clientID
+    }
+
+    func loadRegisteredClientID() throws -> String? {
+        registeredClientID
+    }
+
+    func clearSession() {
+        clearSessionCount += 1
+        authStateData = nil
+        sessionMetadata = nil
+    }
+
+    func clearAll() {
+        clearAllCount += 1
+        authStateData = nil
+        sessionMetadata = nil
+        registeredClientID = nil
     }
 }
 

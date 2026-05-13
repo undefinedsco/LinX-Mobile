@@ -1,21 +1,66 @@
 import AppAuth
 import Foundation
 import UIKit
+#if DEBUG
+import OSLog
+#endif
+
+@MainActor
+protocol AuthSessionStoring: AnyObject {
+    func saveAuthState(_ data: Data) throws
+    func loadAuthState() throws -> Data?
+    func saveSessionMetadata(_ metadata: StoredAuthSessionMetadata) throws
+    func loadSessionMetadata() throws -> StoredAuthSessionMetadata?
+    func saveRegisteredClientID(_ clientID: String) throws
+    func loadRegisteredClientID() throws -> String?
+    func clearSession()
+    func clearAll()
+}
+
+extension KeychainSessionStore: AuthSessionStoring {}
 
 @MainActor
 final class AuthSessionController: ObservableObject {
+    typealias DiscoveryHandler = @MainActor () async throws -> OIDCDiscoveryDocument
+    typealias DynamicRegistrationHandler = @MainActor (OIDServiceConfiguration) async throws -> String
+    typealias PresenterProvider = @MainActor () throws -> UIViewController
+    typealias AuthorizationPresenter = @MainActor (OIDAuthorizationRequest, UIViewController) async throws -> OIDAuthState
+
     @Published private(set) var phase: LinxLaunchPhase = .launching
     @Published private(set) var session: AuthenticatedSessionSnapshot?
     @Published var lastErrorMessage: String?
 
-    private let discoveryClient = OIDCDiscoveryClient()
-    private let registrar = DynamicClientRegistrar()
-    private let keychain = KeychainSessionStore()
+    private let discoverOIDC: DiscoveryHandler
+    private let registerDynamicClient: DynamicRegistrationHandler
+    private let keychain: AuthSessionStoring
+    private let presenterProvider: PresenterProvider
+    private let authorizationPresenter: AuthorizationPresenter?
 
     private var authState: OIDAuthState?
     private var currentAuthorizationFlow: OIDExternalUserAgentSession?
     private var currentAuthorizationContinuation: CheckedContinuation<Void, Error>?
     private var completedAuthorizationState: OIDAuthState?
+
+    init(
+        discoverOIDC: @escaping DiscoveryHandler = { try await OIDCDiscoveryClient().discover() },
+        registerDynamicClient: @escaping DynamicRegistrationHandler = { configuration in
+            try await DynamicClientRegistrar().registerClient(configuration: configuration)
+        },
+        keychain: AuthSessionStoring = KeychainSessionStore(),
+        presenterProvider: @escaping PresenterProvider = {
+            guard let presenter = UIApplication.linxTopViewController() else {
+                throw LinxAppError.missingPresenter
+            }
+            return presenter
+        },
+        authorizationPresenter: AuthorizationPresenter? = nil
+    ) {
+        self.discoverOIDC = discoverOIDC
+        self.registerDynamicClient = registerDynamicClient
+        self.keychain = keychain
+        self.presenterProvider = presenterProvider
+        self.authorizationPresenter = authorizationPresenter
+    }
 
     var isAuthenticated: Bool {
         session != nil
@@ -31,7 +76,25 @@ final class AuthSessionController: ObservableObject {
                 return
             }
 
-            let authState = try NSKeyedUnarchiver.unarchivedObject(ofClass: OIDAuthState.self, from: authStateData)
+            guard let authState = try NSKeyedUnarchiver.unarchivedObject(ofClass: OIDAuthState.self, from: authStateData) else {
+                keychain.clearSession()
+                phase = .unauthenticated
+                lastErrorMessage = AppConstants.loginExpiredMessage
+                return
+            }
+
+            guard Self.hasUsableRefreshToken(authState) else {
+#if DEBUG
+                LinxDiagnostics.auth.error("restore rejected persisted auth state without refresh token")
+#endif
+                keychain.clearSession()
+                self.authState = nil
+                session = nil
+                phase = .unauthenticated
+                lastErrorMessage = AppConstants.loginExpiredMessage
+                return
+            }
+
             self.authState = authState
             session = AuthenticatedSessionSnapshot(webID: metadata.webID, clientID: metadata.clientID)
             phase = .authenticated
@@ -49,13 +112,21 @@ final class AuthSessionController: ObservableObject {
             phase = .authenticating
             lastErrorMessage = nil
 
-            let discovery = try await discoveryClient.discover()
+            let discovery = try await discoverOIDC()
             let configuration = discovery.serviceConfiguration
             let clientID = try await clientID(for: configuration)
-            let presenter = try presenterViewController()
+            let presenter = try presenterProvider()
             let request = PKCECoordinator.makeAuthorizationRequest(configuration: configuration, clientID: clientID)
 
-            let authState = try await presentAuthorization(request: request, presenter: presenter)
+            let authState = try await authorize(request: request, presenter: presenter)
+
+            guard Self.hasUsableRefreshToken(authState) else {
+#if DEBUG
+                LinxDiagnostics.auth.error("login rejected auth state without refresh token")
+#endif
+                keychain.clearAll()
+                throw LinxAppError.authFailed(AppConstants.loginExpiredMessage)
+            }
 
             guard let idToken = authState.lastTokenResponse?.idToken else {
                 throw LinxAppError.invalidIDToken
@@ -101,6 +172,15 @@ final class AuthSessionController: ObservableObject {
             throw LinxAppError.notAuthenticated
         }
 
+        guard Self.hasUsableRefreshToken(authState) else {
+#if DEBUG
+            LinxDiagnostics.auth.error("access token request rejected auth state without refresh token")
+#endif
+            let error = LinxAppError.authFailed(AppConstants.loginExpiredMessage)
+            expireSession(message: AppConstants.loginExpiredMessage)
+            throw error
+        }
+
         if forceRefresh {
             authState.setNeedsTokenRefresh()
         }
@@ -119,13 +199,16 @@ final class AuthSessionController: ObservableObject {
 
                     if let error {
                         guard continuationBox.isPending else { return }
-                        self.expireSession(message: error.localizedDescription)
-                        continuationBox.resume(throwing: error)
+                        let mappedError = Self.mapTokenRefreshError(error)
+                        self.expireSession(message: mappedError.localizedDescription)
+                        continuationBox.resume(throwing: mappedError)
                         return
                     }
 
                     guard let accessToken else {
-                        continuationBox.resume(throwing: LinxAppError.authFailed("Token refresh returned no access token."))
+                        let error = LinxAppError.authFailed("Token refresh returned no access token.")
+                        self.expireSession(message: error.localizedDescription)
+                        continuationBox.resume(throwing: error)
                         return
                     }
 
@@ -147,6 +230,37 @@ final class AuthSessionController: ObservableObject {
         UInt64(max(0, seconds) * 1_000_000_000)
     }
 
+    nonisolated static func hasUsableRefreshToken(_ authState: OIDAuthState) -> Bool {
+        guard let refreshToken = authState.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return refreshToken.isEmpty == false
+    }
+
+    nonisolated static func mapTokenRefreshError(_ error: Error) -> Error {
+        if isMissingOrInvalidRefreshTokenError(error) {
+            return LinxAppError.authFailed(AppConstants.loginExpiredMessage)
+        }
+        return error
+    }
+
+    private nonisolated static func isMissingOrInvalidRefreshTokenError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let values = [
+            error.localizedDescription,
+            nsError.domain,
+            "\(nsError.code)",
+        ]
+        let normalized = values.joined(separator: " ").lowercased()
+
+        return normalized.contains("without a refresh token")
+            || normalized.contains("missing refresh")
+            || normalized.contains("invalid refresh")
+            || normalized.contains("invalid_grant")
+            || normalized.contains("invalid_client")
+            || normalized.contains("missing static client secret")
+    }
+
     func webID() throws -> String {
         guard let webID = session?.webID else {
             throw LinxAppError.missingWebID
@@ -159,16 +273,20 @@ final class AuthSessionController: ObservableObject {
             return existing
         }
 
-        let clientID = try await registrar.registerClient(configuration: configuration)
+        let clientID = try await registerDynamicClient(configuration)
         try keychain.saveRegisteredClientID(clientID)
         return clientID
     }
 
-    private func presenterViewController() throws -> UIViewController {
-        guard let presenter = UIApplication.linxTopViewController() else {
-            throw LinxAppError.missingPresenter
+    private func authorize(
+        request: OIDAuthorizationRequest,
+        presenter: UIViewController
+    ) async throws -> OIDAuthState {
+        if let authorizationPresenter {
+            return try await authorizationPresenter(request, presenter)
         }
-        return presenter
+
+        return try await presentAuthorization(request: request, presenter: presenter)
     }
 
     private func presentAuthorization(

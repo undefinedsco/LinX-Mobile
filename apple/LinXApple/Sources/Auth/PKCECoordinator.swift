@@ -12,7 +12,9 @@ enum PKCECoordinator {
             scopes: AppConstants.loginScopes,
             redirectURL: AppConstants.redirectURL,
             responseType: OIDResponseTypeCode,
-            additionalParameters: nil
+            additionalParameters: [
+                "prompt": "consent",
+            ]
         )
     }
 }

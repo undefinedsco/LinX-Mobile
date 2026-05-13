@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG
+import OSLog
+#endif
 
 @MainActor
 struct PodChatRepository {
@@ -17,28 +20,49 @@ struct PodChatRepository {
     func listThreads(webID: String, limit: Int = AppConstants.pageSize) async throws -> [LinxThreadSummary] {
         let baseURL = try PodStoragePaths.podBaseURL(forWebID: webID)
         let chatURI = PodStoragePaths.chatURI(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+#if DEBUG
+        LinxDiagnostics.podRepository.debug("listThreads start limit=\(limit, privacy: .public) baseHost=\(baseURL.host ?? "-", privacy: .public) basePath=\(baseURL.path, privacy: .private) chatURI=\(chatURI, privacy: .private)")
+#endif
         let response = try await queryChatEndpoints(
             baseURL: baseURL,
             sparql: PodSPARQLBuilder.threadsQuery(chatURI: chatURI, limit: limit)
         )
 
-        return response.results.bindings.compactMap { binding in
-            guard
-                let threadValue = binding["thread"]?.value,
-                let createdAt = LinxDate.parse(binding["createdAt"]?.value)
-            else {
-                return nil
+        var summaries: [LinxThreadSummary] = []
+        var missingThreadCount = 0
+        var missingCreatedAtCount = 0
+        var emptyThreadIDCount = 0
+
+        for binding in response.results.bindings {
+            guard let threadValue = binding["thread"]?.value else {
+                missingThreadCount += 1
+                continue
+            }
+
+            guard let createdAt = LinxDate.parse(binding["createdAt"]?.value) else {
+                missingCreatedAtCount += 1
+                continue
+            }
+
+            let threadID = PodStoragePaths.fragmentID(from: threadValue)
+            if threadID.isEmpty {
+                emptyThreadIDCount += 1
             }
 
             let updatedAt = LinxDate.parse(binding["updatedAt"]?.value) ?? createdAt
             let title = binding["title"]?.value ?? AppConstants.defaultThreadTitle
-            return LinxThreadSummary(
-                id: PodStoragePaths.fragmentID(from: threadValue),
+            summaries.append(LinxThreadSummary(
+                id: threadID,
                 title: title,
                 createdAt: createdAt,
                 updatedAt: updatedAt
-            )
+            ))
         }
+
+#if DEBUG
+        LinxDiagnostics.podRepository.debug("listThreads mapped rawBindings=\(response.results.bindings.count, privacy: .public) mapped=\(summaries.count, privacy: .public) missingThread=\(missingThreadCount, privacy: .public) missingCreatedAt=\(missingCreatedAtCount, privacy: .public) emptyThreadID=\(emptyThreadIDCount, privacy: .public)")
+#endif
+        return summaries
     }
 
     func loadMessages(
@@ -229,22 +253,42 @@ struct PodChatRepository {
         var emptyResponse: SPARQLQueryResponse?
         var lastError: Error?
 
-        for endpoint in PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID) {
+        let endpoints = PodStoragePaths.chatSPARQLEndpoints(baseURL: baseURL, chatID: AppConstants.defaultChatID)
+        for (index, endpoint) in endpoints.enumerated() {
+#if DEBUG
+            LinxDiagnostics.podRepository.debug("queryChatEndpoints attempt index=\(index, privacy: .public) total=\(endpoints.count, privacy: .public) host=\(endpoint.host ?? "-", privacy: .public) path=\(endpoint.path, privacy: .private) sparqlBytes=\(sparql.utf8.count, privacy: .public)")
+#endif
             do {
                 let response = try await client.query(endpoint: endpoint, sparql: sparql)
+                let bindingCount = response.results.bindings.count
+#if DEBUG
+                LinxDiagnostics.podRepository.debug("queryChatEndpoints response index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
+#endif
                 if response.results.bindings.isEmpty == false {
+#if DEBUG
+                    LinxDiagnostics.podRepository.debug("queryChatEndpoints selected nonEmpty index=\(index, privacy: .public) bindings=\(bindingCount, privacy: .public)")
+#endif
                     return response
                 }
                 emptyResponse = emptyResponse ?? response
             } catch {
                 lastError = error
+#if DEBUG
+                LinxDiagnostics.podRepository.error("queryChatEndpoints endpoint error index=\(index, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
+#endif
             }
         }
 
         if let emptyResponse {
+#if DEBUG
+            LinxDiagnostics.podRepository.debug("queryChatEndpoints selected firstEmpty after all endpoints")
+#endif
             return emptyResponse
         }
 
+#if DEBUG
+        LinxDiagnostics.podRepository.error("queryChatEndpoints failed all endpoints error=\((lastError ?? LinxAppError.podWriteFailed("Pod query failed.")).localizedDescription, privacy: .private)")
+#endif
         throw lastError ?? LinxAppError.podWriteFailed("Pod query failed.")
     }
 }

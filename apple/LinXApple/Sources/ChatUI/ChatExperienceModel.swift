@@ -1,5 +1,8 @@
 import ExyteChat
 import Foundation
+#if DEBUG
+import OSLog
+#endif
 
 @MainActor
 final class ChatExperienceModel: ObservableObject {
@@ -78,18 +81,42 @@ final class ChatExperienceModel: ObservableObject {
     private func runBootstrap() async {
         bootstrapState = .running
         errorMessage = nil
+#if DEBUG
+        let startedAt = Date()
+        LinxDiagnostics.threadsModel.debug("bootstrap start")
+#endif
 
         do {
             let webID = try authController.webID()
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("bootstrap webID resolved webID=\(webID, privacy: .private)")
+#endif
             activeModelID = try await modelCatalogClient.preferredModelID()
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("bootstrap model resolved modelID=\(self.activeModelID, privacy: .public)")
+#endif
             try await repository.bootstrap(webID: webID, modelID: activeModelID)
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("bootstrap repository ready")
+#endif
             try await reloadThreads(selectFirstIfNeeded: true)
             bootstrapState = .succeeded
+#if DEBUG
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.threadsModel.debug("bootstrap succeeded threads=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) durationMs=\(durationMs, privacy: .public)")
+#endif
         } catch is CancellationError {
             bootstrapState = .idle
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("bootstrap cancelled")
+#endif
         } catch {
             errorMessage = error.localizedDescription
             bootstrapState = .failed
+#if DEBUG
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) durationMs=\(durationMs, privacy: .public)")
+#endif
         }
     }
 
@@ -260,11 +287,22 @@ final class ChatExperienceModel: ObservableObject {
 
     private func reloadThreads(selectFirstIfNeeded: Bool, reloadMessages: Bool = true) async throws {
         let webID = try authController.webID()
+#if DEBUG
+        let startedAt = Date()
+        LinxDiagnostics.threadsModel.debug("reloadThreads start selectFirst=\(selectFirstIfNeeded, privacy: .public) reloadMessages=\(reloadMessages, privacy: .public) previousCount=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) webID=\(webID, privacy: .private)")
+#endif
         let loaded = try await repository.listThreads(webID: webID)
         threads = loaded.sorted { $0.updatedAt > $1.updatedAt }
+#if DEBUG
+        let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        LinxDiagnostics.threadsModel.debug("reloadThreads repository returned loaded=\(loaded.count, privacy: .public) sorted=\(self.threads.count, privacy: .public) durationMs=\(durationMs, privacy: .public)")
+#endif
 
         if let selectedThread, let updated = threads.first(where: { $0.id == selectedThread.id }) {
             self.selectedThread = updated
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("reloadThreads updated selected threadID=\(updated.id, privacy: .private) reloadMessages=\(reloadMessages, privacy: .public)")
+#endif
             if reloadMessages {
                 await loadMessagesForCurrentThread()
             }
@@ -274,8 +312,16 @@ final class ChatExperienceModel: ObservableObject {
         if selectFirstIfNeeded, let first = threads.first {
             selectedThread = first
             hasLoadedAllMessages = false
+#if DEBUG
+            LinxDiagnostics.threadsModel.debug("reloadThreads selected first threadID=\(first.id, privacy: .private)")
+#endif
             await loadMessagesForCurrentThread()
+            return
         }
+
+#if DEBUG
+        LinxDiagnostics.threadsModel.debug("reloadThreads completed without selection threadCount=\(self.threads.count, privacy: .public) selectFirst=\(selectFirstIfNeeded, privacy: .public)")
+#endif
     }
 
     private func invalidateMessageLoads() {
