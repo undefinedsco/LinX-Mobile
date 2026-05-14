@@ -78,25 +78,7 @@ actor ChatLocalCacheStore {
     }
 
     func loadLaunchSnapshot(webID: String, limit: Int) async throws -> ChatCacheLaunchSnapshot? {
-        let webIDHash = LocalPodFileStore.webIDHash(webID)
-        let userDirectory = try userCacheDirectory(webIDHash: webIDHash, createIfNeeded: false)
-        let threadsURL = userDirectory.appendingPathComponent("threads.json", isDirectory: false)
-
-        guard FileManager.default.fileExists(atPath: threadsURL.path) else {
-            return nil
-        }
-
-        let threadsData = try Data(contentsOf: threadsURL)
-        let threadsEnvelope = try JSONDecoder().decode(CachedThreadsEnvelope.self, from: threadsData)
-        guard threadsEnvelope.schemaVersion == Self.schemaVersion, threadsEnvelope.webIDHash == webIDHash else {
-            return nil
-        }
-
-        let threads = Array(
-            threadsEnvelope.threads
-                .sorted { $0.updatedAt > $1.updatedAt }
-                .prefix(limit)
-        )
+        let threads = try await loadThreads(webID: webID, limit: limit)
         guard threads.isEmpty == false else {
             return nil
         }
@@ -104,7 +86,7 @@ actor ChatLocalCacheStore {
         let selectedThread = threads.first
         let messages: [LinxChatMessage]
         if let selectedThread {
-            messages = try loadMessages(webIDHash: webIDHash, threadID: selectedThread.id, limit: limit)
+            messages = try await loadMessages(webID: webID, threadID: selectedThread.id, limit: limit)
         } else {
             messages = []
         }
@@ -114,6 +96,16 @@ actor ChatLocalCacheStore {
             selectedThread: selectedThread,
             messages: messages
         )
+    }
+
+    func loadThreads(webID: String, limit: Int) async throws -> [LinxThreadSummary] {
+        let webIDHash = LocalPodFileStore.webIDHash(webID)
+        return try loadThreads(webIDHash: webIDHash, limit: limit)
+    }
+
+    func loadMessages(webID: String, threadID: String, limit: Int) async throws -> [LinxChatMessage] {
+        let webIDHash = LocalPodFileStore.webIDHash(webID)
+        return try loadMessages(webIDHash: webIDHash, threadID: threadID, limit: limit)
     }
 
     func saveThreads(_ threads: [LinxThreadSummary], webID: String) async throws {
@@ -158,6 +150,27 @@ actor ChatLocalCacheStore {
             return
         }
         try FileManager.default.removeItem(at: userDirectory)
+    }
+
+    private func loadThreads(webIDHash: String, limit: Int) throws -> [LinxThreadSummary] {
+        let userDirectory = try userCacheDirectory(webIDHash: webIDHash, createIfNeeded: false)
+        let threadsURL = userDirectory.appendingPathComponent("threads.json", isDirectory: false)
+
+        guard FileManager.default.fileExists(atPath: threadsURL.path) else {
+            return []
+        }
+
+        let threadsData = try Data(contentsOf: threadsURL)
+        let threadsEnvelope = try JSONDecoder().decode(CachedThreadsEnvelope.self, from: threadsData)
+        guard threadsEnvelope.schemaVersion == Self.schemaVersion, threadsEnvelope.webIDHash == webIDHash else {
+            return []
+        }
+
+        return Array(
+            threadsEnvelope.threads
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .prefix(limit)
+        )
     }
 
     private func loadMessages(webIDHash: String, threadID: String, limit: Int) throws -> [LinxChatMessage] {

@@ -3,11 +3,43 @@ import Foundation
 import OSLog
 
 @MainActor
+protocol ChatRepositoryProviding: Sendable {
+    func bootstrap(webID: String, modelID: String, force: Bool) async throws
+    func listThreads(webID: String, limit: Int) async throws -> [LinxThreadSummary]
+    func loadMessages(webID: String, threadID: String, limit: Int, offset: Int) async throws -> [LinxChatMessage]
+    func loadAllMessages(webID: String, threadID: String) async throws -> [LinxChatMessage]
+    func createThread(webID: String, title: String, workspace: String) async throws -> LinxThreadSummary
+    func appendUserMessage(webID: String, threadID: String, content: String) async throws -> LinxChatMessage
+    func appendAssistantMessage(webID: String, threadID: String, content: String) async throws -> LinxChatMessage
+}
+
+extension PodChatRepository: ChatRepositoryProviding, @unchecked Sendable {}
+
+@MainActor
+protocol ChatModelCatalogProviding: Sendable {
+    func preferredModelID() async throws -> String
+}
+
+extension LinxModelCatalogClient: ChatModelCatalogProviding, @unchecked Sendable {}
+
+@MainActor
+protocol ChatCompletionProviding: Sendable {
+    func createCompletionResult(
+        messages: [LinxChatMessage],
+        modelID: String,
+        tools: [RemoteChatTool]
+    ) async throws -> RemoteCompletionResult
+}
+
+extension LinxOpenAIChatService: ChatCompletionProviding, @unchecked Sendable {}
+
+@MainActor
 final class ChatExperienceModel: ObservableObject {
     private enum BootstrapState {
         case idle
         case running
         case succeeded
+        case degraded
         case failed
     }
 
@@ -22,10 +54,10 @@ final class ChatExperienceModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let authController: AuthSessionController
-    private let repository: PodChatRepository
+    private let repository: any ChatRepositoryProviding
     private let localCache: ChatLocalCacheStore
-    private let modelCatalogClient: LinxModelCatalogClient
-    private let runtimeService: LinxOpenAIChatService
+    private let modelCatalogClient: any ChatModelCatalogProviding
+    private let runtimeService: any ChatCompletionProviding
 
     private var loadedMessageLimit = AppConstants.pageSize
     private var hasLoadedAllMessages = true
@@ -42,6 +74,20 @@ final class ChatExperienceModel: ObservableObject {
         self.runtimeService = LinxOpenAIChatService(authController: authController)
     }
 
+    init(
+        authController: AuthSessionController,
+        repository: any ChatRepositoryProviding,
+        localCache: ChatLocalCacheStore = ChatLocalCacheStore(),
+        modelCatalogClient: any ChatModelCatalogProviding,
+        runtimeService: any ChatCompletionProviding
+    ) {
+        self.authController = authController
+        self.repository = repository
+        self.localCache = localCache
+        self.modelCatalogClient = modelCatalogClient
+        self.runtimeService = runtimeService
+    }
+
     var currentWebID: String? {
         authController.session?.webID
     }
@@ -55,7 +101,11 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     var canRetryBootstrap: Bool {
-        bootstrapState == .failed && authController.isAuthenticated
+        (bootstrapState == .failed || bootstrapState == .degraded) && authController.isAuthenticated
+    }
+
+    var isUsingCachedFallback: Bool {
+        bootstrapState == .degraded
     }
 
     var canLoadMoreMessages: Bool {
@@ -92,7 +142,7 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     func retryBootstrap() async {
-        guard authController.isAuthenticated, bootstrapState == .failed else { return }
+        guard authController.isAuthenticated, bootstrapState == .failed || bootstrapState == .degraded else { return }
         bootstrapState = .idle
         await bootstrapIfNeeded()
     }
@@ -100,7 +150,11 @@ final class ChatExperienceModel: ObservableObject {
     private func runBootstrap(webID: String, startedAt: Date) async {
         do {
             async let preferredModelID = modelCatalogClient.preferredModelID()
-            async let podBootstrap: Void = repository.bootstrap(webID: webID, modelID: AppConstants.defaultModelID)
+            async let podBootstrap: Void = repository.bootstrap(
+                webID: webID,
+                modelID: AppConstants.defaultModelID,
+                force: false
+            )
 
             let resolvedModelID = try await preferredModelID
             try await podBootstrap
@@ -115,10 +169,7 @@ final class ChatExperienceModel: ObservableObject {
             bootstrapState = .idle
             LinxDiagnostics.threadsModel.info("bootstrap cancelled")
         } catch {
-            errorMessage = error.localizedDescription
-            bootstrapState = .failed
-            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-            LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public) durationMs=\(durationMs, privacy: .public)")
+            await finishBootstrapFailure(error, webID: webID, startedAt: startedAt)
         }
     }
 
@@ -163,6 +214,9 @@ final class ChatExperienceModel: ObservableObject {
         cachedLaunchThreadID = nil
 
         Task {
+            if let webID = try? authController.webID() {
+                await loadCachedMessages(webID: webID, threadID: thread.id, limit: AppConstants.pageSize)
+            }
             await loadMessagesForCurrentThread()
         }
     }
@@ -226,7 +280,11 @@ final class ChatExperienceModel: ObservableObject {
                 threadID: thread.id
             )
 
-            let completion = try await runtimeService.createCompletionResult(messages: completionMessages, modelID: activeModelID)
+            let completion = try await runtimeService.createCompletionResult(
+                messages: completionMessages,
+                modelID: activeModelID,
+                tools: []
+            )
             let assistantMessage = try await repository.appendAssistantMessage(
                 webID: webID,
                 threadID: thread.id,
@@ -264,22 +322,33 @@ final class ChatExperienceModel: ObservableObject {
         return createdThread
     }
 
-    private func loadMessagesForCurrentThread() async {
-        guard let selectedThread else { return }
+    @discardableResult
+    private func loadMessagesForCurrentThread() async -> Error? {
+        guard let selectedThread else { return nil }
         let threadID = selectedThread.id
         let requestedLimit = loadedMessageLimit
         let loadID = UUID()
         activeMessageLoadID = loadID
         isLoadingMessages = true
 
+        let webID: String
         do {
-            let webID = try authController.webID()
+            webID = try authController.webID()
+        } catch {
+            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return nil }
+            errorMessage = error.localizedDescription
+            isLoadingMessages = false
+            return error
+        }
+
+        do {
             let loaded = try await repository.loadMessages(
                 webID: webID,
                 threadID: threadID,
-                limit: requestedLimit
+                limit: requestedLimit,
+                offset: 0
             )
-            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
+            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return nil }
             hasLoadedAllMessages = loaded.count < requestedLimit
             if cachedLaunchThreadID == threadID {
                 messages = loaded
@@ -289,20 +358,28 @@ final class ChatExperienceModel: ObservableObject {
             }
             await persistMessagesCache(webID: webID, threadID: threadID)
         } catch {
-            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
+            guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return nil }
             errorMessage = error.localizedDescription
+            if Self.shouldUseCacheFallback(for: error) {
+                await loadCachedMessages(webID: webID, threadID: threadID, limit: requestedLimit)
+            }
+            if activeMessageLoadID == loadID {
+                isLoadingMessages = false
+            }
+            return error
         }
 
         if activeMessageLoadID == loadID {
             isLoadingMessages = false
         }
+        return nil
     }
 
     private func reloadThreads(selectFirstIfNeeded: Bool, reloadMessages: Bool = true) async throws {
         let webID = try authController.webID()
         let startedAt = Date()
         LinxDiagnostics.threadsModel.info("reloadThreads start selectFirst=\(selectFirstIfNeeded, privacy: .public) reloadMessages=\(reloadMessages, privacy: .public) previousCount=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) selectedHash=\(LinxDiagnostics.fingerprint(self.selectedThread?.id), privacy: .public) webID=\(webID, privacy: .private) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
-        let loaded = try await repository.listThreads(webID: webID)
+        let loaded = try await repository.listThreads(webID: webID, limit: AppConstants.pageSize)
         threads = loaded.sorted { $0.updatedAt > $1.updatedAt }
         await persistThreadsCache(webID: webID)
         let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
@@ -312,7 +389,9 @@ final class ChatExperienceModel: ObservableObject {
             self.selectedThread = updated
             LinxDiagnostics.threadsModel.info("reloadThreads updated selected threadID=\(updated.id, privacy: .private) threadHash=\(LinxDiagnostics.fingerprint(updated.id), privacy: .public) reloadMessages=\(reloadMessages, privacy: .public)")
             if reloadMessages {
-                await loadMessagesForCurrentThread()
+                if let messageError = await loadMessagesForCurrentThread() {
+                    throw messageError
+                }
             }
             return
         }
@@ -321,7 +400,9 @@ final class ChatExperienceModel: ObservableObject {
             selectedThread = first
             hasLoadedAllMessages = false
             LinxDiagnostics.threadsModel.info("reloadThreads selected first threadID=\(first.id, privacy: .private) threadHash=\(LinxDiagnostics.fingerprint(first.id), privacy: .public)")
-            await loadMessagesForCurrentThread()
+            if let messageError = await loadMessagesForCurrentThread() {
+                throw messageError
+            }
             return
         }
 
@@ -337,10 +418,32 @@ final class ChatExperienceModel: ObservableObject {
         LinxDiagnostics.threadsModel.info("reloadThreads completed without selection threadCount=\(self.threads.count, privacy: .public) selectFirst=\(selectFirstIfNeeded, privacy: .public)")
     }
 
-    private func loadCachedLaunchSnapshot(webID: String) async {
+    private func finishBootstrapFailure(_ error: Error, webID: String, startedAt: Date) async {
+        errorMessage = error.localizedDescription
+        let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+
+        if Self.shouldUseCacheFallback(for: error) {
+            let didApplyCache = await loadCachedLaunchSnapshot(webID: webID)
+            if didApplyCache || hasVisibleChatData {
+                bootstrapState = .degraded
+                LinxDiagnostics.threadsModel.error("bootstrap degraded using cache error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public) threads=\(self.threads.count, privacy: .public) messages=\(self.messages.count, privacy: .public) durationMs=\(durationMs, privacy: .public)")
+                return
+            }
+        }
+
+        bootstrapState = .failed
+        LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public) durationMs=\(durationMs, privacy: .public)")
+    }
+
+    private var hasVisibleChatData: Bool {
+        threads.isEmpty == false || selectedThread != nil || messages.isEmpty == false
+    }
+
+    @discardableResult
+    private func loadCachedLaunchSnapshot(webID: String) async -> Bool {
         do {
             guard let snapshot = try await localCache.loadLaunchSnapshot(webID: webID, limit: AppConstants.pageSize) else {
-                return
+                return false
             }
 
             threads = snapshot.threads
@@ -351,9 +454,49 @@ final class ChatExperienceModel: ObservableObject {
             isLoadingMessages = false
             cachedLaunchThreadID = snapshot.selectedThread?.id
             LinxDiagnostics.threadsModel.info("bootstrap cache applied threads=\(snapshot.threads.count, privacy: .public) messages=\(snapshot.messages.count, privacy: .public) selectedHash=\(LinxDiagnostics.fingerprint(snapshot.selectedThread?.id), privacy: .public)")
+            return true
         } catch {
             LinxDiagnostics.threadsModel.error("bootstrap cache ignored error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            return false
         }
+    }
+
+    @discardableResult
+    private func loadCachedMessages(webID: String, threadID: String, limit: Int) async -> Bool {
+        do {
+            let cachedMessages = try await localCache.loadMessages(webID: webID, threadID: threadID, limit: limit)
+            guard cachedMessages.isEmpty == false, selectedThread?.id == threadID else {
+                return false
+            }
+
+            messages = cachedMessages
+            hasLoadedAllMessages = cachedMessages.count < limit
+            isLoadingMessages = false
+            cachedLaunchThreadID = threadID
+            LinxDiagnostics.threadsModel.info("messages cache applied threadHash=\(LinxDiagnostics.fingerprint(threadID), privacy: .public) messages=\(cachedMessages.count, privacy: .public)")
+            return true
+        } catch {
+            LinxDiagnostics.threadsModel.error("messages cache ignored threadHash=\(LinxDiagnostics.fingerprint(threadID), privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+            return false
+        }
+    }
+
+    private nonisolated static func shouldUseCacheFallback(for error: Error) -> Bool {
+        if let appError = error as? LinxAppError {
+            switch appError {
+            case .authFailed, .missingWebID, .notAuthenticated:
+                return false
+            case .missingPresenter, .invalidIDToken, .invalidRuntimeResponse, .emptyModelCatalog,
+                 .requestTimedOut, .podWriteFailed, .runtimeFailed:
+                return true
+            }
+        }
+
+        if let runtimeError = error as? LinxRuntimeRequestError, runtimeError.authExpired {
+            return false
+        }
+
+        return true
     }
 
     private func persistThreadsCache(webID: String) async {

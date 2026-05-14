@@ -698,10 +698,14 @@ final class AuthAndPodTests: XCTestCase {
         try await store.saveMessages([newestMessage, oldestMessage], webID: testWebID, threadID: latestThread.id)
 
         let snapshot = try await store.loadLaunchSnapshot(webID: testWebID, limit: 20)
+        let cachedThreads = try await store.loadThreads(webID: testWebID, limit: 20)
+        let cachedMessages = try await store.loadMessages(webID: testWebID, threadID: latestThread.id, limit: 20)
 
         XCTAssertEqual(snapshot?.threads.map(\.id), ["latest", "older"])
         XCTAssertEqual(snapshot?.selectedThread?.id, "latest")
         XCTAssertEqual(snapshot?.messages.map(\.id), ["message-1", "message-2"])
+        XCTAssertEqual(cachedThreads.map(\.id), ["latest", "older"])
+        XCTAssertEqual(cachedMessages.map(\.id), ["message-1", "message-2"])
     }
 
     func testLocalCacheIgnoresSchemaVersionMismatch() async throws {
@@ -731,6 +735,143 @@ final class AuthAndPodTests: XCTestCase {
         let snapshot = try await store.loadLaunchSnapshot(webID: testWebID, limit: 20)
 
         XCTAssertNil(snapshot)
+    }
+
+    @MainActor
+    func testBootstrapUsesCachedDataWhenRemoteThreadLoadFails() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let cacheRoot = try makeTemporaryDirectory()
+        let localCache = ChatLocalCacheStore(rootDirectory: cacheRoot)
+        let olderThread = makeThread(id: "older", title: "Older", updatedAt: 10)
+        let latestThread = makeThread(id: "latest", title: "Latest", updatedAt: 20)
+        let cachedMessage = makeMessage(
+            id: "cached-message",
+            threadID: latestThread.id,
+            role: .assistant,
+            content: "cached response",
+            createdAt: Date(timeIntervalSince1970: 30)
+        )
+        try await localCache.saveThreads([olderThread, latestThread], webID: testWebID)
+        try await localCache.saveMessages([cachedMessage], webID: testWebID, threadID: latestThread.id)
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .failure(URLError(.notConnectedToInternet))
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertEqual(model.threads.map(\.id), ["latest", "older"])
+        XCTAssertEqual(model.selectedThread?.id, "latest")
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+        XCTAssertTrue(model.isUsingCachedFallback)
+        XCTAssertTrue(model.canRetryBootstrap)
+        XCTAssertEqual(repository.bootstrapCallCount, 1)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    @MainActor
+    func testBootstrapFailsWithoutCacheWhenRemoteThreadLoadFails() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .failure(URLError(.notConnectedToInternet))
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertTrue(model.threads.isEmpty)
+        XCTAssertNil(model.selectedThread)
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertFalse(model.isUsingCachedFallback)
+        XCTAssertTrue(model.canRetryBootstrap)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    @MainActor
+    func testBootstrapRemoteSuccessOverwritesCachedDataAndCache() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let cacheRoot = try makeTemporaryDirectory()
+        let localCache = ChatLocalCacheStore(rootDirectory: cacheRoot)
+        let cachedThread = makeThread(id: "cached", title: "Cached", updatedAt: 10)
+        let remoteThread = makeThread(id: "remote", title: "Remote", updatedAt: 30)
+        let remoteMessage = makeMessage(
+            id: "remote-message",
+            threadID: remoteThread.id,
+            role: .assistant,
+            content: "remote response",
+            createdAt: Date(timeIntervalSince1970: 40)
+        )
+        try await localCache.saveThreads([cachedThread], webID: testWebID)
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .success([remoteThread])
+        repository.loadMessagesResult = .success([remoteMessage])
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertEqual(model.threads.map(\.id), ["remote"])
+        XCTAssertEqual(model.selectedThread?.id, "remote")
+        XCTAssertEqual(model.messages.map(\.id), ["remote-message"])
+        XCTAssertFalse(model.isUsingCachedFallback)
+        let snapshot = try await localCache.loadLaunchSnapshot(webID: testWebID, limit: 20)
+        XCTAssertEqual(snapshot?.threads.map(\.id), ["remote"])
+        XCTAssertEqual(snapshot?.messages.map(\.id), ["remote-message"])
+    }
+
+    @MainActor
+    func testBootstrapAuthFailureDoesNotEnterCachedFallbackState() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let cachedThread = makeThread(id: "cached", title: "Cached", updatedAt: 10)
+        let cachedMessage = makeMessage(
+            id: "cached-message",
+            threadID: cachedThread.id,
+            role: .assistant,
+            content: "cached response",
+            createdAt: Date(timeIntervalSince1970: 20)
+        )
+        try await localCache.saveThreads([cachedThread], webID: testWebID)
+        try await localCache.saveMessages([cachedMessage], webID: testWebID, threadID: cachedThread.id)
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .failure(LinxAppError.authFailed(AppConstants.loginExpiredMessage))
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+        XCTAssertFalse(model.isUsingCachedFallback)
+        XCTAssertTrue(model.canRetryBootstrap)
+        XCTAssertEqual(model.errorMessage, AppConstants.loginExpiredMessage)
+    }
+
+    @MainActor
+    func testSelectThreadShowsCachedMessagesBeforeRemoteCompletesAndRetainsThemOnFailure() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let thread = makeThread(id: "thread-1", title: "Thread", updatedAt: 10)
+        let cachedMessage = makeMessage(
+            id: "cached-message",
+            threadID: thread.id,
+            role: .assistant,
+            content: "cached response",
+            createdAt: Date(timeIntervalSince1970: 20)
+        )
+        try await localCache.saveMessages([cachedMessage], webID: testWebID, threadID: thread.id)
+        let repository = MockChatRepository()
+        repository.suspendLoadMessages = true
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        model.selectThread(thread)
+        await waitUntil {
+            model.messages.map(\.id) == ["cached-message"] && repository.loadMessagesCallCount == 1
+        }
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+
+        repository.finishLoadMessages(.failure(URLError(.notConnectedToInternet)))
+        await waitUntil { model.errorMessage != nil }
+
+        XCTAssertEqual(model.selectedThread?.id, thread.id)
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+        XCTAssertNotNil(model.errorMessage)
     }
 
     @MainActor
@@ -865,6 +1006,15 @@ final class AuthAndPodTests: XCTestCase {
         )
     }
 
+    private func makeThread(id: String, title: String, updatedAt: TimeInterval) -> LinxThreadSummary {
+        LinxThreadSummary(
+            id: id,
+            title: title,
+            createdAt: Date(timeIntervalSince1970: updatedAt - 1),
+            updatedAt: Date(timeIntervalSince1970: updatedAt)
+        )
+    }
+
     private func encodeBase64URL(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
@@ -877,6 +1027,31 @@ final class AuthAndPodTests: XCTestCase {
             .appendingPathComponent("LinXAppleTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    @MainActor
+    private func makeAuthenticatedAuthController() async throws -> AuthSessionController {
+        let store = InMemoryAuthSessionStore()
+        store.authStateData = try archivedAuthState(refreshToken: "refresh-token")
+        store.sessionMetadata = .init(webID: testWebID, clientID: "client-id")
+        let controller = makeAuthController(keychain: store)
+        await controller.restore()
+        return controller
+    }
+
+    @MainActor
+    private func makeChatModel(
+        authController: AuthSessionController,
+        repository: MockChatRepository,
+        localCache: ChatLocalCacheStore
+    ) -> ChatExperienceModel {
+        ChatExperienceModel(
+            authController: authController,
+            repository: repository,
+            localCache: localCache,
+            modelCatalogClient: MockModelCatalogClient(),
+            runtimeService: MockChatCompletionService()
+        )
     }
 
     @MainActor
@@ -902,6 +1077,22 @@ final class AuthAndPodTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for \(count) access token requests", file: file, line: line)
+    }
+
+    @MainActor
+    private func waitUntil(
+        _ predicate: @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0 ..< 100 {
+            if predicate() {
+                return
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Timed out waiting for condition", file: file, line: line)
     }
 
     private func makeDiscoveryDocument() -> OIDCDiscoveryDocument {
@@ -1185,5 +1376,94 @@ private final class AccessTokenActionRecorder {
 
     func fail(index: Int, error: Error) {
         completions[index](nil, error)
+    }
+}
+
+@MainActor
+private final class MockChatRepository: ChatRepositoryProviding {
+    var bootstrapResult: Result<Void, Error> = .success(())
+    var listThreadsResult: Result<[LinxThreadSummary], Error> = .success([])
+    var loadMessagesResult: Result<[LinxChatMessage], Error> = .success([])
+    var loadAllMessagesResult: Result<[LinxChatMessage], Error> = .success([])
+    var createThreadResult: Result<LinxThreadSummary, Error> = .failure(LinxAppError.podWriteFailed("Unsupported mock createThread call."))
+    var appendUserMessageResult: Result<LinxChatMessage, Error> = .failure(LinxAppError.podWriteFailed("Unsupported mock appendUserMessage call."))
+    var appendAssistantMessageResult: Result<LinxChatMessage, Error> = .failure(LinxAppError.podWriteFailed("Unsupported mock appendAssistantMessage call."))
+    var suspendLoadMessages = false
+
+    private(set) var bootstrapCallCount = 0
+    private(set) var loadMessagesCallCount = 0
+    private var loadMessagesContinuation: CheckedContinuation<[LinxChatMessage], Error>?
+
+    func bootstrap(webID _: String, modelID _: String, force _: Bool) async throws {
+        bootstrapCallCount += 1
+        try bootstrapResult.get()
+    }
+
+    func listThreads(webID _: String, limit _: Int) async throws -> [LinxThreadSummary] {
+        try listThreadsResult.get()
+    }
+
+    func loadMessages(
+        webID _: String,
+        threadID _: String,
+        limit _: Int,
+        offset _: Int
+    ) async throws -> [LinxChatMessage] {
+        loadMessagesCallCount += 1
+        if suspendLoadMessages {
+            return try await withCheckedThrowingContinuation { continuation in
+                loadMessagesContinuation = continuation
+            }
+        }
+        return try loadMessagesResult.get()
+    }
+
+    func finishLoadMessages(_ result: Result<[LinxChatMessage], Error>) {
+        loadMessagesContinuation?.resume(with: result)
+        loadMessagesContinuation = nil
+    }
+
+    func loadAllMessages(webID _: String, threadID _: String) async throws -> [LinxChatMessage] {
+        try loadAllMessagesResult.get()
+    }
+
+    func createThread(webID _: String, title _: String, workspace _: String) async throws -> LinxThreadSummary {
+        try createThreadResult.get()
+    }
+
+    func appendUserMessage(webID _: String, threadID _: String, content _: String) async throws -> LinxChatMessage {
+        try appendUserMessageResult.get()
+    }
+
+    func appendAssistantMessage(webID _: String, threadID _: String, content _: String) async throws -> LinxChatMessage {
+        try appendAssistantMessageResult.get()
+    }
+}
+
+@MainActor
+private struct MockModelCatalogClient: ChatModelCatalogProviding {
+    var result: Result<String, Error> = .success(AppConstants.defaultModelID)
+
+    func preferredModelID() async throws -> String {
+        try result.get()
+    }
+}
+
+@MainActor
+private struct MockChatCompletionService: ChatCompletionProviding {
+    var result = RemoteCompletionResult(
+        content: "mock response",
+        reasoningContent: nil,
+        toolCalls: [],
+        finishReason: nil,
+        usage: nil
+    )
+
+    func createCompletionResult(
+        messages _: [LinxChatMessage],
+        modelID _: String,
+        tools _: [RemoteChatTool]
+    ) async throws -> RemoteCompletionResult {
+        result
     }
 }
