@@ -23,6 +23,8 @@ final class AuthSessionController: ObservableObject {
     typealias DynamicRegistrationHandler = @MainActor (OIDServiceConfiguration) async throws -> String
     typealias PresenterProvider = @MainActor () throws -> UIViewController
     typealias AuthorizationPresenter = @MainActor (OIDAuthorizationRequest, UIViewController) async throws -> OIDAuthState
+    typealias AccessTokenCompletion = (String?, Error?) -> Void
+    typealias AccessTokenAction = @MainActor (OIDAuthState, Bool, @escaping AccessTokenCompletion) -> Void
 
     @Published private(set) var phase: LinxLaunchPhase = .launching
     @Published private(set) var session: AuthenticatedSessionSnapshot?
@@ -33,11 +35,16 @@ final class AuthSessionController: ObservableObject {
     private let keychain: AuthSessionStoring
     private let presenterProvider: PresenterProvider
     private let authorizationPresenter: AuthorizationPresenter?
+    private let accessTokenAction: AccessTokenAction
 
     private var authState: OIDAuthState?
     private var currentAuthorizationFlow: OIDExternalUserAgentSession?
     private var currentAuthorizationContinuation: CheckedContinuation<Void, Error>?
     private var completedAuthorizationState: OIDAuthState?
+    private var tokenRequestTask: Task<String, Error>?
+    private var tokenRequestForceRefresh = false
+    private var tokenRequestID: UUID?
+    private var tokenRequestContinuation: ThrowingContinuationBox<String>?
 
     init(
         discoverOIDC: @escaping DiscoveryHandler = { try await OIDCDiscoveryClient().discover() },
@@ -51,13 +58,19 @@ final class AuthSessionController: ObservableObject {
             }
             return presenter
         },
-        authorizationPresenter: AuthorizationPresenter? = nil
+        authorizationPresenter: AuthorizationPresenter? = nil,
+        accessTokenAction: AccessTokenAction? = nil
     ) {
         self.discoverOIDC = discoverOIDC
         self.registerDynamicClient = registerDynamicClient
         self.keychain = keychain
         self.presenterProvider = presenterProvider
         self.authorizationPresenter = authorizationPresenter
+        self.accessTokenAction = accessTokenAction ?? { authState, _, completion in
+            authState.performAction { accessToken, _, error in
+                completion(accessToken, error)
+            }
+        }
     }
 
     var isAuthenticated: Bool {
@@ -141,6 +154,7 @@ final class AuthSessionController: ObservableObject {
 
     func logout() {
         cancelAuthorizationFlow()
+        cancelTokenRequest()
         authState = nil
         session = nil
         keychain.clearAll()
@@ -150,6 +164,7 @@ final class AuthSessionController: ObservableObject {
 
     func expireSession(message: String = AppConstants.loginExpiredMessage) {
         cancelAuthorizationFlow()
+        cancelTokenRequest()
         authState = nil
         session = nil
         keychain.clearSession()
@@ -176,36 +191,92 @@ final class AuthSessionController: ObservableObject {
             throw error
         }
 
+        if let tokenRequestTask {
+            if tokenRequestForceRefresh || forceRefresh == false {
+                LinxDiagnostics.auth.debug("access token request joined forceRefresh=\(forceRefresh, privacy: .public) activeForceRefresh=\(self.tokenRequestForceRefresh, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public)")
+                return try await tokenRequestTask.value
+            }
+
+            LinxDiagnostics.auth.debug("access token force refresh superseded active non-refresh request webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public)")
+            cancelTokenRequest()
+        }
+
+        let requestID = UUID()
+        tokenRequestID = requestID
+        tokenRequestForceRefresh = forceRefresh
+        let task = Task { @MainActor in
+            try await self.performAccessTokenRequest(
+                authState: authState,
+                snapshot: snapshot,
+                forceRefresh: forceRefresh,
+                requestID: requestID
+            )
+        }
+        tokenRequestTask = task
+
+        do {
+            let token = try await task.value
+            clearTokenRequestIfCurrent(requestID)
+            return token
+        } catch {
+            clearTokenRequestIfCurrent(requestID)
+            throw error
+        }
+    }
+
+    private func performAccessTokenRequest(
+        authState: OIDAuthState,
+        snapshot: AuthenticatedSessionSnapshot,
+        forceRefresh: Bool,
+        requestID: UUID
+    ) async throws -> String {
+        guard isCurrentTokenRequest(requestID) else {
+            throw CancellationError()
+        }
+
         if forceRefresh {
             authState.setNeedsTokenRefresh()
         }
 
         return try await withCheckedThrowingContinuation { continuation in
             let continuationBox = ThrowingContinuationBox<String>(continuation)
+            tokenRequestContinuation = continuationBox
             let timeoutTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: Self.timeoutNanoseconds(from: AppConstants.tokenRefreshTimeout))
                 guard Task.isCancelled == false else { return }
+                guard self.isCurrentTokenRequest(requestID) else {
+                    continuationBox.resume(throwing: CancellationError())
+                    return
+                }
+                self.tokenRequestContinuation = nil
                 continuationBox.resume(throwing: LinxAppError.requestTimedOut("Refreshing your LinX Cloud session timed out. Check your connection and try again."))
             }
 
-            authState.performAction { accessToken, _, error in
+            accessTokenAction(authState, forceRefresh) { accessToken, error in
                 Task { @MainActor in
                     timeoutTask.cancel()
+
+                    guard self.isCurrentTokenRequest(requestID) else {
+                        continuationBox.resume(throwing: CancellationError())
+                        return
+                    }
 
                     if let error {
                         guard continuationBox.isPending else { return }
                         let mappedError = Self.mapTokenRefreshError(error)
                         LinxDiagnostics.auth.error("token refresh failed forceRefresh=\(forceRefresh, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public) error=\(mappedError.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(mappedError.localizedDescription), privacy: .public)")
-                        self.expireSession(message: mappedError.localizedDescription)
+                        self.tokenRequestContinuation = nil
                         continuationBox.resume(throwing: mappedError)
+                        self.expireSession(message: mappedError.localizedDescription)
                         return
                     }
 
                     guard let accessToken else {
                         let error = LinxAppError.authFailed("Token refresh returned no access token.")
                         LinxDiagnostics.auth.error("token refresh returned empty access token forceRefresh=\(forceRefresh, privacy: .public) webIDHash=\(LinxDiagnostics.fingerprint(snapshot.webID), privacy: .public)")
-                        self.expireSession(message: error.localizedDescription)
+                        self.tokenRequestContinuation = nil
                         continuationBox.resume(throwing: error)
+                        self.expireSession(message: error.localizedDescription)
                         return
                     }
 
@@ -217,10 +288,32 @@ final class AuthSessionController: ObservableObject {
                         self.lastErrorMessage = error.localizedDescription
                     }
 
+                    self.tokenRequestContinuation = nil
                     continuationBox.resume(returning: accessToken)
                 }
             }
         }
+    }
+
+    private func isCurrentTokenRequest(_ requestID: UUID) -> Bool {
+        tokenRequestID == requestID
+    }
+
+    private func clearTokenRequestIfCurrent(_ requestID: UUID) {
+        guard tokenRequestID == requestID else { return }
+        tokenRequestTask = nil
+        tokenRequestContinuation = nil
+        tokenRequestForceRefresh = false
+        tokenRequestID = nil
+    }
+
+    private func cancelTokenRequest() {
+        tokenRequestTask?.cancel()
+        tokenRequestContinuation?.resume(throwing: CancellationError())
+        tokenRequestTask = nil
+        tokenRequestContinuation = nil
+        tokenRequestForceRefresh = false
+        tokenRequestID = nil
     }
 
     private nonisolated static func timeoutNanoseconds(from seconds: TimeInterval) -> UInt64 {

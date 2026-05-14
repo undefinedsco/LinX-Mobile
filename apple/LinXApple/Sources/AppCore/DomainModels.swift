@@ -26,14 +26,14 @@ struct AuthenticatedSessionSnapshot: Equatable, Sendable {
     let clientID: String
 }
 
-struct LinxThreadSummary: Identifiable, Equatable, Sendable {
+struct LinxThreadSummary: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let createdAt: Date
     let updatedAt: Date
 }
 
-struct LinxChatMessage: Identifiable, Equatable, Sendable {
+struct LinxChatMessage: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let threadID: String
     let maker: String

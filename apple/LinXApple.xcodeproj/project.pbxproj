@@ -17,6 +17,7 @@
 		2F7355E3DE4AD1D06C66A897 /* AuthAndPodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */; };
 		32205F0C4B4FB77361589212 /* LinXAppleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */; };
 		58A614B37DBE02969A1F6346 /* LinxRuntimeTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */; };
+		592CEE93773B7282B2C01D50 /* ChatLocalCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0B31BF6571646A33C389FC /* ChatLocalCacheStore.swift */; };
 		5D781AA2D354AD8AC8F89C38 /* JWTUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F0564592561E6695E1185C /* JWTUtilities.swift */; };
 		60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */; };
 		6D25A62B85953B90A844F2BA /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FA4264569D40F354DB2DBD /* KeychainSessionStore.swift */; };
@@ -31,6 +32,7 @@
 		BB60E386CC6D8E45F9C4EC59 /* PodChatRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9625A6A158082D2CFC252624 /* PodChatRepository.swift */; };
 		BEBA6BBA24FD009EC16CA7FB /* PodSPARQLClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09742308DB5A6732DA35AF99 /* PodSPARQLClient.swift */; };
 		C2146D797FDCB29F92E3AF74 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D26D8E4AC4C548D2B7304F3 /* RootView.swift */; };
+		D4E1407E0AD0F0C22B8B56C2 /* PodBootstrapMarkerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7ED1E7ADD524FF7576F1117 /* PodBootstrapMarkerStore.swift */; };
 		D694CE789F763D924B784FCA /* LinxDate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277B37722CE6C4A8D6AC6E12 /* LinxDate.swift */; };
 		D6B8DC3DAD8E4B3205765A32 /* LinxModelCatalogClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE6F3C448CE1BB4D2D99D0C /* LinxModelCatalogClient.swift */; };
 		D77450385BCEDBE1ECAC9614 /* LinxOpenAIChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C700B949FC45C6F9D8FA371 /* LinxOpenAIChatService.swift */; };
@@ -73,6 +75,7 @@
 		3812D8E3FF330679B2F7D602 /* AuthSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionController.swift; sourceTree = "<group>"; };
 		3C700B949FC45C6F9D8FA371 /* LinxOpenAIChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxOpenAIChatService.swift; sourceTree = "<group>"; };
 		3EF912173B30C7A37142233E /* PKCECoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PKCECoordinator.swift; sourceTree = "<group>"; };
+		4D0B31BF6571646A33C389FC /* ChatLocalCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocalCacheStore.swift; sourceTree = "<group>"; };
 		62453068EE5975D9C9E12368 /* PodStoragePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodStoragePaths.swift; sourceTree = "<group>"; };
 		6D9876092D2D34C13A325B3D /* OIDCDiscoveryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OIDCDiscoveryClient.swift; sourceTree = "<group>"; };
 		737B61D3893CF582784DB6BD /* ChatExperienceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatExperienceModel.swift; sourceTree = "<group>"; };
@@ -88,6 +91,7 @@
 		ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxRuntimeTargetResolver.swift; sourceTree = "<group>"; };
 		B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthAndPodTests.swift; sourceTree = "<group>"; };
 		B7D0FB80BB16FF9720D7468E /* ThreadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadListView.swift; sourceTree = "<group>"; };
+		B7ED1E7ADD524FF7576F1117 /* PodBootstrapMarkerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodBootstrapMarkerStore.swift; sourceTree = "<group>"; };
 		C08D5B19111A3BBEF346C9A7 /* UIApplication+TopController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIApplication+TopController.swift"; sourceTree = "<group>"; };
 		CE25543DA49144809E4F4C44 /* AssistantMarkdownBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantMarkdownBubble.swift; sourceTree = "<group>"; };
 		CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinXAppleApp.swift; sourceTree = "<group>"; };
@@ -165,6 +169,8 @@
 		73BF4801BE4A77A852E12A0E /* PodData */ = {
 			isa = PBXGroup;
 			children = (
+				4D0B31BF6571646A33C389FC /* ChatLocalCacheStore.swift */,
+				B7ED1E7ADD524FF7576F1117 /* PodBootstrapMarkerStore.swift */,
 				E4C93AD1857125B191BB0FFB /* PodBootstrapper.swift */,
 				9625A6A158082D2CFC252624 /* PodChatRepository.swift */,
 				0C1D673127294EB264192B1B /* PodSPARQLBuilder.swift */,
@@ -362,6 +368,7 @@
 				EA0B77B5420D97F5878E803D /* AssistantMarkdownBubble.swift in Sources */,
 				B286A9503064803D8B99F311 /* AuthSessionController.swift in Sources */,
 				7144AAEE52FEA628500D2E2F /* ChatExperienceModel.swift in Sources */,
+				592CEE93773B7282B2C01D50 /* ChatLocalCacheStore.swift in Sources */,
 				E38CF2D6C350B34C6E5C8DAB /* ChatScene.swift in Sources */,
 				A8FBB36EB0C47694027D136D /* DomainModels.swift in Sources */,
 				1E4D2044655839E3B71FA9B2 /* DynamicClientRegistrar.swift in Sources */,
@@ -378,6 +385,7 @@
 				B3A570E7549905A3577FC2D5 /* LoginView.swift in Sources */,
 				230518DD5B299EA2BC2015B0 /* OIDCDiscoveryClient.swift in Sources */,
 				F7EBEE1F199CBF8AD60458A2 /* PKCECoordinator.swift in Sources */,
+				D4E1407E0AD0F0C22B8B56C2 /* PodBootstrapMarkerStore.swift in Sources */,
 				FAFA2A2575CE2261A5527EAA /* PodBootstrapper.swift in Sources */,
 				BB60E386CC6D8E45F9C4EC59 /* PodChatRepository.swift in Sources */,
 				0EDB999773A3E8B067F34C51 /* PodSPARQLBuilder.swift in Sources */,

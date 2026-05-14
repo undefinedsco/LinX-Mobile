@@ -5,6 +5,7 @@ import OSLog
 struct PodChatRepository {
     private let client: PodSPARQLClient
     private let bootstrapper: PodBootstrapper
+    private let bootstrapMarkerStore: PodBootstrapMarkerStore
 
     private struct ThreadMappingResult {
         let summaries: [LinxThreadSummary]
@@ -16,13 +17,32 @@ struct PodChatRepository {
         let emptyThreadIDCount: Int
     }
 
-    init(client: PodSPARQLClient) {
+    init(
+        client: PodSPARQLClient,
+        bootstrapMarkerStore: PodBootstrapMarkerStore = PodBootstrapMarkerStore()
+    ) {
         self.client = client
         self.bootstrapper = PodBootstrapper(client: client)
+        self.bootstrapMarkerStore = bootstrapMarkerStore
     }
 
-    func bootstrap(webID: String, modelID: String) async throws {
+    func bootstrap(webID: String, modelID: String, force: Bool = false) async throws {
+        if force == false,
+           await bootstrapMarkerStore.hasCompletedBootstrap(webID: webID, chatID: AppConstants.defaultChatID) {
+#if DEBUG
+            LinxDiagnostics.podRepository.debug("bootstrap skipped by local marker")
+#endif
+            return
+        }
+
         try await bootstrapper.bootstrap(webID: webID, modelID: modelID)
+        do {
+            try await bootstrapMarkerStore.markCompleted(webID: webID, chatID: AppConstants.defaultChatID)
+        } catch {
+#if DEBUG
+            LinxDiagnostics.podRepository.error("bootstrap marker write failed error=\(error.localizedDescription, privacy: .private)")
+#endif
+        }
     }
 
     func listThreads(webID: String, limit: Int = AppConstants.pageSize) async throws -> [LinxThreadSummary] {

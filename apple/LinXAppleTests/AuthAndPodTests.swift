@@ -664,6 +664,162 @@ final class AuthAndPodTests: XCTestCase {
         XCTAssertEqual(store.clearSessionCount, 0)
     }
 
+    func testLocalCacheReturnsLaunchSnapshotForLatestThread() async throws {
+        let cacheRoot = try makeTemporaryDirectory()
+        let store = ChatLocalCacheStore(rootDirectory: cacheRoot)
+        let olderThread = LinxThreadSummary(
+            id: "older",
+            title: "Older",
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let latestThread = LinxThreadSummary(
+            id: "latest",
+            title: "Latest",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let newestMessage = makeMessage(
+            id: "message-2",
+            threadID: latestThread.id,
+            role: .assistant,
+            content: "new",
+            createdAt: Date(timeIntervalSince1970: 3)
+        )
+        let oldestMessage = makeMessage(
+            id: "message-1",
+            threadID: latestThread.id,
+            role: .user,
+            content: "old",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.saveThreads([olderThread, latestThread], webID: testWebID)
+        try await store.saveMessages([newestMessage, oldestMessage], webID: testWebID, threadID: latestThread.id)
+
+        let snapshot = try await store.loadLaunchSnapshot(webID: testWebID, limit: 20)
+
+        XCTAssertEqual(snapshot?.threads.map(\.id), ["latest", "older"])
+        XCTAssertEqual(snapshot?.selectedThread?.id, "latest")
+        XCTAssertEqual(snapshot?.messages.map(\.id), ["message-1", "message-2"])
+    }
+
+    func testLocalCacheIgnoresSchemaVersionMismatch() async throws {
+        let cacheRoot = try makeTemporaryDirectory()
+        let webIDHash = LocalPodFileStore.webIDHash(testWebID)
+        let userDirectory = cacheRoot.appendingPathComponent(webIDHash, isDirectory: true)
+        try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
+        let threadsURL = userDirectory.appendingPathComponent("threads.json")
+        let staleEnvelope = """
+        {
+          "schemaVersion": 0,
+          "cachedAt": 0,
+          "webIDHash": "\(webIDHash)",
+          "threads": [
+            {
+              "id": "thread-1",
+              "title": "Stale",
+              "createdAt": 0,
+              "updatedAt": 1
+            }
+          ]
+        }
+        """
+        try Data(staleEnvelope.utf8).write(to: threadsURL)
+        let store = ChatLocalCacheStore(rootDirectory: cacheRoot)
+
+        let snapshot = try await store.loadLaunchSnapshot(webID: testWebID, limit: 20)
+
+        XCTAssertNil(snapshot)
+    }
+
+    @MainActor
+    func testRepositorySkipsBootstrapWhenMarkerExists() async throws {
+        let markerRoot = try makeTemporaryDirectory()
+        let markerStore = PodBootstrapMarkerStore(rootDirectory: markerRoot)
+        try await markerStore.markCompleted(webID: testWebID)
+        let recorder = URLRequestLog()
+        let repository = makeRepository(routes: [:], recorder: recorder, bootstrapMarkerStore: markerStore)
+
+        try await repository.bootstrap(webID: testWebID, modelID: AppConstants.defaultModelID)
+
+        let requestedURLs = await recorder.urls
+        XCTAssertTrue(requestedURLs.isEmpty)
+    }
+
+    @MainActor
+    func testRepositoryWritesBootstrapMarkerAfterFullBootstrap() async throws {
+        let markerRoot = try makeTemporaryDirectory()
+        let markerStore = PodBootstrapMarkerStore(rootDirectory: markerRoot)
+        let recorder = URLRequestLog()
+        let transport = PodHTTPTransport { request in
+            await recorder.record(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 204,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let repository = PodChatRepository(
+            client: PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport),
+            bootstrapMarkerStore: markerStore
+        )
+
+        try await repository.bootstrap(webID: testWebID, modelID: AppConstants.defaultModelID)
+
+        let requestedURLs = await recorder.urls
+        XCTAssertFalse(requestedURLs.isEmpty)
+        let markerExists = await markerStore.hasCompletedBootstrap(webID: testWebID)
+        XCTAssertTrue(markerExists)
+    }
+
+    @MainActor
+    func testAccessTokenRequestsJoinInFlightRequest() async throws {
+        let store = InMemoryAuthSessionStore()
+        store.authStateData = try archivedAuthState(refreshToken: "refresh-token")
+        store.sessionMetadata = .init(webID: testWebID, clientID: "client-id")
+        let recorder = AccessTokenActionRecorder()
+        let controller = makeAuthController(keychain: store, accessTokenAction: recorder.perform)
+        await controller.restore()
+
+        let first = Task { @MainActor in await result { try await controller.accessToken(forceRefresh: false) } }
+        let second = Task { @MainActor in await result { try await controller.accessToken(forceRefresh: false) } }
+        await waitForAccessTokenRequests(recorder, count: 1)
+        recorder.complete(index: 0, token: "joined-token")
+
+        let firstResult = await first.value
+        let secondResult = await second.value
+        XCTAssertEqual(try firstResult.get(), "joined-token")
+        XCTAssertEqual(try secondResult.get(), "joined-token")
+        XCTAssertEqual(recorder.forceRefreshCalls, [false])
+    }
+
+    @MainActor
+    func testForceRefreshSupersedesInFlightNonRefreshRequest() async throws {
+        let store = InMemoryAuthSessionStore()
+        store.authStateData = try archivedAuthState(refreshToken: "refresh-token")
+        store.sessionMetadata = .init(webID: testWebID, clientID: "client-id")
+        let recorder = AccessTokenActionRecorder()
+        let controller = makeAuthController(keychain: store, accessTokenAction: recorder.perform)
+        await controller.restore()
+
+        let first = Task { @MainActor in await result { try await controller.accessToken(forceRefresh: false) } }
+        await waitForAccessTokenRequests(recorder, count: 1)
+        let second = Task { @MainActor in await result { try await controller.accessToken(forceRefresh: true) } }
+        await waitForAccessTokenRequests(recorder, count: 2)
+        recorder.complete(index: 1, token: "refreshed-token")
+
+        let firstResult = await first.value
+        XCTAssertThrowsError(try firstResult.get()) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        let secondResult = await second.value
+        XCTAssertEqual(try secondResult.get(), "refreshed-token")
+        XCTAssertEqual(recorder.forceRefreshCalls, [false, true])
+    }
+
     func testMissingRefreshTokenErrorMapsToLoginExpiredMessage() {
         let sourceError = NSError(
             domain: "org.openid.appauth",
@@ -716,6 +872,38 @@ final class AuthAndPodTests: XCTestCase {
             .replacingOccurrences(of: "=", with: "")
     }
 
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LinXAppleTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @MainActor
+    private func result(_ operation: () async throws -> String) async -> Result<String, Error> {
+        do {
+            return .success(try await operation())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    @MainActor
+    private func waitForAccessTokenRequests(
+        _ recorder: AccessTokenActionRecorder,
+        count: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0 ..< 100 {
+            if recorder.forceRefreshCalls.count >= count {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for \(count) access token requests", file: file, line: line)
+    }
+
     private func makeDiscoveryDocument() -> OIDCDiscoveryDocument {
         OIDCDiscoveryDocument(
             issuer: AppConstants.issuerURL,
@@ -728,7 +916,8 @@ final class AuthAndPodTests: XCTestCase {
     @MainActor
     private func makeAuthController(
         keychain: InMemoryAuthSessionStore,
-        authorizationAuthState: OIDAuthState? = nil
+        authorizationAuthState: OIDAuthState? = nil,
+        accessTokenAction: AuthSessionController.AccessTokenAction? = nil
     ) -> AuthSessionController {
         let discovery = makeDiscoveryDocument()
         return AuthSessionController(
@@ -741,7 +930,8 @@ final class AuthAndPodTests: XCTestCase {
                     throw LinxAppError.authFailed("Missing fake authorization state.")
                 }
                 return authorizationAuthState
-            }
+            },
+            accessTokenAction: accessTokenAction
         )
     }
 
@@ -788,7 +978,8 @@ final class AuthAndPodTests: XCTestCase {
     @MainActor
     private func makeRepository(
         routes: [String: MockHTTPRoute],
-        recorder: URLRequestLog = URLRequestLog()
+        recorder: URLRequestLog = URLRequestLog(),
+        bootstrapMarkerStore: PodBootstrapMarkerStore = PodBootstrapMarkerStore()
     ) -> PodChatRepository {
         let transport = PodHTTPTransport { request in
             await recorder.record(request)
@@ -801,7 +992,10 @@ final class AuthAndPodTests: XCTestCase {
             )!
             return (Data(route.body.utf8), response)
         }
-        return PodChatRepository(client: PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport))
+        return PodChatRepository(
+            client: PodSPARQLClient(authProvider: TestPodAuthProvider(), transport: transport),
+            bootstrapMarkerStore: bootstrapMarkerStore
+        )
     }
 
     private func threadSPARQLResponse(
@@ -968,5 +1162,28 @@ private final class RecordingPodAuthProvider: PodSPARQLAuthProviding {
 
     func expireSession(message: String) {
         expiredMessages.append(message)
+    }
+}
+
+@MainActor
+private final class AccessTokenActionRecorder {
+    private var completions: [AuthSessionController.AccessTokenCompletion] = []
+    private(set) var forceRefreshCalls: [Bool] = []
+
+    func perform(
+        authState _: OIDAuthState,
+        forceRefresh: Bool,
+        completion: @escaping AuthSessionController.AccessTokenCompletion
+    ) {
+        forceRefreshCalls.append(forceRefresh)
+        completions.append(completion)
+    }
+
+    func complete(index: Int, token: String) {
+        completions[index](token, nil)
+    }
+
+    func fail(index: Int, error: Error) {
+        completions[index](nil, error)
     }
 }

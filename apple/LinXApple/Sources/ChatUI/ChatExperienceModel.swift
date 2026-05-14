@@ -23,16 +23,19 @@ final class ChatExperienceModel: ObservableObject {
 
     private let authController: AuthSessionController
     private let repository: PodChatRepository
+    private let localCache: ChatLocalCacheStore
     private let modelCatalogClient: LinxModelCatalogClient
     private let runtimeService: LinxOpenAIChatService
 
     private var loadedMessageLimit = AppConstants.pageSize
     private var hasLoadedAllMessages = true
     private var activeMessageLoadID = UUID()
+    private var cachedLaunchThreadID: String?
     private var sendTask: Task<Void, Never>?
 
-    init(authController: AuthSessionController) {
+    init(authController: AuthSessionController, localCache: ChatLocalCacheStore = ChatLocalCacheStore()) {
         self.authController = authController
+        self.localCache = localCache
         let podClient = PodSPARQLClient(authController: authController)
         self.repository = PodChatRepository(client: podClient)
         self.modelCatalogClient = LinxModelCatalogClient(authController: authController)
@@ -67,16 +70,6 @@ final class ChatExperienceModel: ObservableObject {
         guard authController.isAuthenticated else { return }
         guard bootstrapState == .idle else { return }
 
-        await runBootstrap()
-    }
-
-    func retryBootstrap() async {
-        guard authController.isAuthenticated, bootstrapState == .failed else { return }
-        bootstrapState = .idle
-        await bootstrapIfNeeded()
-    }
-
-    private func runBootstrap() async {
         bootstrapState = .running
         errorMessage = nil
         let startedAt = Date()
@@ -85,9 +78,34 @@ final class ChatExperienceModel: ObservableObject {
         do {
             let webID = try authController.webID()
             LinxDiagnostics.threadsModel.info("bootstrap webID resolved webID=\(webID, privacy: .private) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
-            activeModelID = try await modelCatalogClient.preferredModelID()
+            await loadCachedLaunchSnapshot(webID: webID)
+            await runBootstrap(webID: webID, startedAt: startedAt)
+        } catch is CancellationError {
+            bootstrapState = .idle
+            LinxDiagnostics.threadsModel.info("bootstrap cancelled")
+        } catch {
+            errorMessage = error.localizedDescription
+            bootstrapState = .failed
+            let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            LinxDiagnostics.threadsModel.error("bootstrap failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public) durationMs=\(durationMs, privacy: .public)")
+        }
+    }
+
+    func retryBootstrap() async {
+        guard authController.isAuthenticated, bootstrapState == .failed else { return }
+        bootstrapState = .idle
+        await bootstrapIfNeeded()
+    }
+
+    private func runBootstrap(webID: String, startedAt: Date) async {
+        do {
+            async let preferredModelID = modelCatalogClient.preferredModelID()
+            async let podBootstrap: Void = repository.bootstrap(webID: webID, modelID: AppConstants.defaultModelID)
+
+            let resolvedModelID = try await preferredModelID
+            try await podBootstrap
+            activeModelID = resolvedModelID
             LinxDiagnostics.threadsModel.info("bootstrap model resolved modelID=\(self.activeModelID, privacy: .public)")
-            try await repository.bootstrap(webID: webID, modelID: activeModelID)
             LinxDiagnostics.threadsModel.info("bootstrap repository ready")
             try await reloadThreads(selectFirstIfNeeded: true)
             bootstrapState = .succeeded
@@ -119,6 +137,7 @@ final class ChatExperienceModel: ObservableObject {
         errorMessage = nil
         activeModelID = AppConstants.defaultModelID
         isShowingThreadSheet = false
+        cachedLaunchThreadID = nil
     }
 
     func newChat() {
@@ -130,6 +149,7 @@ final class ChatExperienceModel: ObservableObject {
         hasLoadedAllMessages = true
         isLoadingMessages = false
         isShowingThreadSheet = false
+        cachedLaunchThreadID = nil
     }
 
     func selectThread(_ thread: LinxThreadSummary) {
@@ -140,6 +160,7 @@ final class ChatExperienceModel: ObservableObject {
         hasLoadedAllMessages = false
         isLoadingMessages = false
         isShowingThreadSheet = false
+        cachedLaunchThreadID = nil
 
         Task {
             await loadMessagesForCurrentThread()
@@ -197,6 +218,7 @@ final class ChatExperienceModel: ObservableObject {
 
             let userMessage = try await repository.appendUserMessage(webID: webID, threadID: thread.id, content: text)
             messages.append(userMessage)
+            await persistMessagesCache(webID: webID, threadID: thread.id)
 
             let completionMessages = Self.makeCompletionMessages(
                 history: persistedHistory,
@@ -211,6 +233,7 @@ final class ChatExperienceModel: ObservableObject {
                 content: completion.content
             )
             messages.append(assistantMessage)
+            await persistMessagesCache(webID: webID, threadID: thread.id)
             try await reloadThreads(selectFirstIfNeeded: false, reloadMessages: false)
         } catch is CancellationError {
             errorMessage = "LinX Cloud request aborted by user."
@@ -258,7 +281,13 @@ final class ChatExperienceModel: ObservableObject {
             )
             guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
             hasLoadedAllMessages = loaded.count < requestedLimit
-            messages = mergedMessages(loaded, preserving: messages, threadID: threadID)
+            if cachedLaunchThreadID == threadID {
+                messages = loaded
+                cachedLaunchThreadID = nil
+            } else {
+                messages = mergedMessages(loaded, preserving: messages, threadID: threadID)
+            }
+            await persistMessagesCache(webID: webID, threadID: threadID)
         } catch {
             guard activeMessageLoadID == loadID, self.selectedThread?.id == threadID else { return }
             errorMessage = error.localizedDescription
@@ -275,6 +304,7 @@ final class ChatExperienceModel: ObservableObject {
         LinxDiagnostics.threadsModel.info("reloadThreads start selectFirst=\(selectFirstIfNeeded, privacy: .public) reloadMessages=\(reloadMessages, privacy: .public) previousCount=\(self.threads.count, privacy: .public) selected=\(self.selectedThread?.id ?? "none", privacy: .private) selectedHash=\(LinxDiagnostics.fingerprint(self.selectedThread?.id), privacy: .public) webID=\(webID, privacy: .private) webIDHash=\(LinxDiagnostics.fingerprint(webID), privacy: .public)")
         let loaded = try await repository.listThreads(webID: webID)
         threads = loaded.sorted { $0.updatedAt > $1.updatedAt }
+        await persistThreadsCache(webID: webID)
         let durationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         LinxDiagnostics.threadsModel.info("reloadThreads repository returned loaded=\(loaded.count, privacy: .public) sorted=\(self.threads.count, privacy: .public) durationMs=\(durationMs, privacy: .public)")
 
@@ -295,7 +325,51 @@ final class ChatExperienceModel: ObservableObject {
             return
         }
 
+        if selectFirstIfNeeded {
+            selectedThread = nil
+            messages = []
+            loadedMessageLimit = AppConstants.pageSize
+            hasLoadedAllMessages = true
+            isLoadingMessages = false
+            cachedLaunchThreadID = nil
+        }
+
         LinxDiagnostics.threadsModel.info("reloadThreads completed without selection threadCount=\(self.threads.count, privacy: .public) selectFirst=\(selectFirstIfNeeded, privacy: .public)")
+    }
+
+    private func loadCachedLaunchSnapshot(webID: String) async {
+        do {
+            guard let snapshot = try await localCache.loadLaunchSnapshot(webID: webID, limit: AppConstants.pageSize) else {
+                return
+            }
+
+            threads = snapshot.threads
+            selectedThread = snapshot.selectedThread
+            messages = snapshot.messages
+            loadedMessageLimit = AppConstants.pageSize
+            hasLoadedAllMessages = snapshot.selectedThread == nil || snapshot.messages.count < AppConstants.pageSize
+            isLoadingMessages = false
+            cachedLaunchThreadID = snapshot.selectedThread?.id
+            LinxDiagnostics.threadsModel.info("bootstrap cache applied threads=\(snapshot.threads.count, privacy: .public) messages=\(snapshot.messages.count, privacy: .public) selectedHash=\(LinxDiagnostics.fingerprint(snapshot.selectedThread?.id), privacy: .public)")
+        } catch {
+            LinxDiagnostics.threadsModel.error("bootstrap cache ignored error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+        }
+    }
+
+    private func persistThreadsCache(webID: String) async {
+        do {
+            try await localCache.saveThreads(threads, webID: webID)
+        } catch {
+            LinxDiagnostics.threadsModel.error("threads cache write failed error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+        }
+    }
+
+    private func persistMessagesCache(webID: String, threadID: String) async {
+        do {
+            try await localCache.saveMessages(messages, webID: webID, threadID: threadID)
+        } catch {
+            LinxDiagnostics.threadsModel.error("messages cache write failed threadID=\(threadID, privacy: .private) threadHash=\(LinxDiagnostics.fingerprint(threadID), privacy: .public) error=\(error.localizedDescription, privacy: .private) errorHash=\(LinxDiagnostics.fingerprint(error.localizedDescription), privacy: .public)")
+        }
     }
 
     private func invalidateMessageLoads() {
