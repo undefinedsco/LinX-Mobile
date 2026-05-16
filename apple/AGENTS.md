@@ -126,11 +126,13 @@ Do not call `SwiftOpenAI` directly from UI views.
 - Preserve the current Pod resource layout:
 
 ```text
-{podBase}/.data/chat/cli-default/index.ttl
-{podBase}/.data/chat/cli-default/yyyy/mm/dd/messages.ttl
-{podBase}/.data/agents/linx-cli-assistant.ttl
+{podBase}/.data/chat/ios-default/index.ttl
+{podBase}/.data/chat/ios-default/yyyy/mm/dd/messages.ttl
+{podBase}/.data/agents/linx-ios-assistant.ttl
 ```
 
+- The native Apple app does not merge or migrate CLI history from
+  `cli-default`.
 - Keep WebID-to-Pod URL behavior in `PodStoragePaths`.
 
 ## UI Rules

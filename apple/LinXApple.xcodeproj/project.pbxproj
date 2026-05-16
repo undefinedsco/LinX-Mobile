@@ -492,6 +492,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -512,6 +513,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

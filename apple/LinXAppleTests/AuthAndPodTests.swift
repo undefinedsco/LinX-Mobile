@@ -787,6 +787,88 @@ final class AuthAndPodTests: XCTestCase {
     }
 
     @MainActor
+    func testBootstrapPreservesCachedDataWhenRemoteThreadsAreEmpty() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let olderThread = makeThread(id: "older", title: "Older", updatedAt: 10)
+        let latestThread = makeThread(id: "latest", title: "Latest", updatedAt: 20)
+        let cachedMessage = makeMessage(
+            id: "cached-message",
+            threadID: latestThread.id,
+            role: .assistant,
+            content: "cached response",
+            createdAt: Date(timeIntervalSince1970: 30)
+        )
+        try await localCache.saveThreads([olderThread, latestThread], webID: testWebID)
+        try await localCache.saveMessages([cachedMessage], webID: testWebID, threadID: latestThread.id)
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .success([])
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertEqual(model.threads.map(\.id), ["latest", "older"])
+        XCTAssertEqual(model.selectedThread?.id, "latest")
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+        XCTAssertTrue(model.isUsingCachedFallback)
+        XCTAssertTrue(model.canRetryBootstrap)
+        XCTAssertEqual(model.errorMessage, "Pod returned no chat history. Showing cached chat data.")
+        let snapshot = try await localCache.loadLaunchSnapshot(webID: testWebID, limit: 20)
+        XCTAssertEqual(snapshot?.threads.map(\.id), ["latest", "older"])
+        XCTAssertEqual(snapshot?.messages.map(\.id), ["cached-message"])
+    }
+
+    @MainActor
+    func testBootstrapPreservesCachedMessagesWhenRemoteMessagesAreEmpty() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let cachedThread = makeThread(id: "thread-1", title: "Cached", updatedAt: 10)
+        let remoteThread = makeThread(id: "thread-1", title: "Remote", updatedAt: 20)
+        let cachedMessage = makeMessage(
+            id: "cached-message",
+            threadID: cachedThread.id,
+            role: .assistant,
+            content: "cached response",
+            createdAt: Date(timeIntervalSince1970: 30)
+        )
+        try await localCache.saveThreads([cachedThread], webID: testWebID)
+        try await localCache.saveMessages([cachedMessage], webID: testWebID, threadID: cachedThread.id)
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .success([remoteThread])
+        repository.loadMessagesResult = .success([])
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertEqual(model.threads.map(\.id), ["thread-1"])
+        XCTAssertEqual(model.selectedThread?.title, "Remote")
+        XCTAssertEqual(model.messages.map(\.id), ["cached-message"])
+        XCTAssertTrue(model.isUsingCachedFallback)
+        XCTAssertTrue(model.canRetryBootstrap)
+        XCTAssertEqual(model.errorMessage, "Pod returned no messages for this thread. Showing cached messages.")
+        let cachedMessages = try await localCache.loadMessages(webID: testWebID, threadID: cachedThread.id, limit: 20)
+        XCTAssertEqual(cachedMessages.map(\.id), ["cached-message"])
+    }
+
+    @MainActor
+    func testBootstrapRemoteEmptyWithoutCacheStaysEmptyAndSynced() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let repository = MockChatRepository()
+        repository.listThreadsResult = .success([])
+        let model = makeChatModel(authController: controller, repository: repository, localCache: localCache)
+
+        await model.bootstrapIfNeeded()
+
+        XCTAssertTrue(model.threads.isEmpty)
+        XCTAssertNil(model.selectedThread)
+        XCTAssertTrue(model.messages.isEmpty)
+        XCTAssertFalse(model.isUsingCachedFallback)
+        XCTAssertFalse(model.canRetryBootstrap)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    @MainActor
     func testBootstrapRemoteSuccessOverwritesCachedDataAndCache() async throws {
         let controller = try await makeAuthenticatedAuthController()
         let cacheRoot = try makeTemporaryDirectory()
@@ -990,7 +1072,7 @@ final class AuthAndPodTests: XCTestCase {
         createdAt: Date
     ) -> LinxChatMessage {
         let maker = role == .assistant
-            ? "https://alice.example/.data/agents/linx-cli-assistant.ttl"
+            ? "https://alice.example/.data/agents/\(AppConstants.defaultAgentID).ttl"
             : testWebID
 
         return LinxChatMessage(

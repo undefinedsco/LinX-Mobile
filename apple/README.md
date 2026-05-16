@@ -142,12 +142,15 @@ OIDC discovery
 ```text
 {podBase}/.data/
 |-- chat/
-|   `-- cli-default/
+|   `-- ios-default/
 |       |-- index.ttl
 |       `-- yyyy/mm/dd/messages.ttl
 `-- agents/
-    `-- linx-cli-assistant.ttl
+    `-- linx-ios-assistant.ttl
 ```
+
+The native Apple app keeps its chat history in `ios-default`. Existing CLI
+history in `cli-default` is not merged or migrated into the app.
 
 ## Setup
 
