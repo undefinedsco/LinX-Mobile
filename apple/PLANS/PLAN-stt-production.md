@@ -1,144 +1,243 @@
 # PLAN-stt-production.md
 
-# Production PLAN: whisper.cpp 接入现有 iOS 工程
+# Production PLAN: whisper.cpp 接入 LinXApple 原生 iOS App
 
-> 目标：将 `whisper.cpp` / `whisper.swiftui` 的本地 STT 能力工程化接入现有 iOS App，形成可维护、可测试、可扩展的语音转文字模块。
+> 目标：在当前 `apple/` 原生 SwiftUI App 中接入 `whisper.cpp` 本地 STT 能力，形成可维护、可测试、可扩展的语音输入模块。
 >
-> 适用场景：
+> 首版产品目标：麦克风录音 -> 本地离线转写 -> 将转写文本回填到 `ChatScene` 的聊天输入草稿，由用户确认后再发送。
 >
-> - 现有 iOS 工程
-> - 本地离线语音识别
-> - 中文 / 英文 / 中英混合转写
-> - 可后续扩展 Core ML encoder 加速
-> - 可后续扩展模型下载、模型切换、长音频分片识别
+> 首版不做：自动发送、Pod 转写历史存储、模型热下载、Core ML encoder 加速、长音频分片识别、独立 demo 首页。
 
 ---
 
-## 0. 总体目标
+## 0. 当前工程事实
 
-### 0.1 功能目标
-
-实现一个独立的 iOS STT 模块：
-
-- 支持麦克风录音
-- 支持本地音频文件转写
-- 支持 whisper.cpp 本地推理
-- 支持中文、英文、自动识别语言
-- 支持识别状态回调
-- 支持错误处理
-- 支持基础性能日志
-- 支持后续模型热更新 / 下载
-
-### 0.2 工程目标
-
-模块应满足：
-
-- 不污染现有业务代码
-- 通过协议隔离 STT 实现
-- UI 与推理逻辑解耦
-- 可以替换为 Apple Speech / OpenAI API / Deepgram 等其他 STT Provider
-- 支持单元测试
-- 支持真机性能验证
-- 支持 XcodeGen 或手动 Xcode 工程接入
-
----
-
-## 1. 推荐架构
+本计划只适用于当前 LinXApple 工程，不再保留通用 iOS 模板分支。
 
 ```text
-App
- └── Features
-      └── SpeechRecognition
-           ├── UI
-           │    └── SpeechRecognitionView.swift
-           ├── ViewModel
-           │    └── SpeechRecognitionViewModel.swift
-           ├── Domain
-           │    ├── TranscriptionService.swift
-           │    ├── TranscriptionResult.swift
-           │    ├── TranscriptionState.swift
-           │    └── SpeechRecognitionError.swift
-           ├── Infrastructure
-           │    ├── WhisperTranscriptionService.swift
-           │    ├── WhisperModelManager.swift
-           │    ├── WhisperCppBridge.swift
-           │    ├── AudioRecorderService.swift
-           │    ├── AudioFileConverter.swift
-           │    └── AudioSessionManager.swift
-           └── Tests
-                ├── WhisperModelManagerTests.swift
-                ├── AudioFileConverterTests.swift
-                └── SpeechRecognitionViewModelTests.swift
-
-Vendors
- └── Whisper
-      └── whisper.xcframework
-
-Resources
- └── WhisperModels
-      ├── ggml-tiny.bin
-      ├── ggml-base.bin
-      └── ggml-small.bin
+apple/
+|-- project.yml
+|-- LinXApple.xcodeproj
+|-- LinXApple/
+|   |-- Resources/
+|   |   |-- Info.plist
+|   |   `-- Assets.xcassets/
+|   `-- Sources/
+|       |-- AppCore/
+|       |-- Auth/
+|       |-- ChatUI/
+|       |-- PodData/
+|       `-- Runtime/
+|-- LinXAppleTests/
+`-- LinXAppleUITests/
 ```
 
+工程配置：
+
+- App target: `LinXApple`
+- Unit test target: `LinXAppleTests`
+- UI test target: `LinXAppleUITests`
+- Project generator: XcodeGen, source of truth is `project.yml`
+- Deployment target: iOS `17.0`
+- Swift version: `6.0`
+- Strict concurrency: `complete`
+- App type: standalone native SwiftUI app
+- Package manager: Swift Package Manager through `project.yml`
+
+现有关键接入点：
+
+- `LinXApple/Sources/AppCore/LinXAppleApp.swift`: app entry, creates `AuthSessionController` and `ChatExperienceModel`
+- `LinXApple/Sources/AppCore/RootView.swift`: authenticated route presents `ChatScene`
+- `LinXApple/Sources/ChatUI/ChatScene.swift`: chat screen and `draftText` input binding
+- `LinXApple/Sources/ChatUI/ChatExperienceModel.swift`: existing send flow through `enqueueSend(_:)`
+- `LinXApple/Sources/AppCore/LinxDiagnostics.swift`: OSLog categories
+- `LinXApple/Resources/Info.plist`: privacy usage strings
+
+当前仓库尚未包含：
+
+- `ThirdParty/whisper.cpp`
+- `Vendors/Whisper/whisper.xcframework`
+- `LinXApple/Resources/WhisperModels/`
+
+这些 artifact 是 STT 实现前置条件。
+
 ---
 
-## 2. 第三方依赖
+## 1. 总体目标
 
-### 2.1 必需依赖
+### 1.1 首版功能目标
 
-| 依赖 | 用途 |
-|---|---|
-| whisper.cpp | 本地 STT 推理 |
-| whisper.xcframework | iOS 可链接二进制 |
-| AVFoundation | 录音、音频转换 |
-| Foundation | 文件、并发、错误处理 |
-| Swift Concurrency | async / await 推理封装 |
+- 支持麦克风录音
+- 支持 whisper.cpp 本地离线转写
+- 支持中文、英文、自动语言识别
+- 支持录音中、准备音频、加载模型、转写中、完成、失败、取消等状态
+- 转写完成后写入聊天输入框草稿，不自动发送
+- 用户点击现有发送按钮后复用当前 Pod 持久化和 LinX runtime 回复流程
+- 支持模型缺失、权限拒绝、录音失败、音频转换失败、推理失败的明确错误
+- 支持基础性能日志
+- 支持模拟器可跑的单元测试和真机手动验证
 
-### 2.2 可选依赖
+### 1.2 工程目标
 
-| 依赖 | 用途 |
-|---|---|
-| XcodeGen | 生成 Xcode project |
-| Core ML | encoder 加速 |
-| os.log | 性能日志 |
-| Combine | ViewModel 状态绑定，SwiftUI 项目可选 |
+- 保持当前 SwiftUI + `@MainActor` coordinator 架构
+- UI 与录音、音频转换、whisper bridge 解耦
+- 通过 protocol 隔离 STT provider，后续可替换为 Apple Speech、OpenAI API、Deepgram 等
+- 不污染 `Auth`、`PodData`、`Runtime` 的职责边界
+- 不手动编辑 generated `LinXApple.xcodeproj`
+- 保持 Swift 6 strict concurrency clean
+- 不在主线程执行音频转换或 whisper 推理
+- 不把模型路径硬编码为开发机绝对路径
 
 ---
 
-## 3. 构建 whisper.xcframework
+## 2. LinXApple 专用架构
 
-### 3.1 添加 whisper.cpp
+### 2.1 目录结构
 
-推荐使用 Git submodule：
+推荐新增目录：
+
+```text
+LinXApple/Sources/
+|-- SpeechRecognition/
+|   |-- Domain/
+|   |   |-- SpeechTranscriptionProviding.swift
+|   |   |-- SpeechTranscriptionOptions.swift
+|   |   |-- SpeechTranscriptionResult.swift
+|   |   |-- SpeechRecognitionState.swift
+|   |   `-- SpeechRecognitionError.swift
+|   |-- Infrastructure/
+|   |   |-- SpeechAudioRecorder.swift
+|   |   |-- SpeechAudioSessionManager.swift
+|   |   |-- SpeechAudioConverter.swift
+|   |   |-- WhisperModelStore.swift
+|   |   `-- WhisperTranscriptionService.swift
+|   `-- Bridge/
+|       |-- WhisperCppBridge.swift
+|       `-- WhisperPCMReader.swift
+|
+|-- ChatUI/
+|   |-- SpeechRecognitionViewModel.swift
+|   `-- SpeechInputSheet.swift
+|
+`-- AppCore/
+    `-- LinxDiagnostics.swift
+
+LinXApple/Resources/
+`-- WhisperModels/
+    |-- ggml-tiny.bin
+    `-- ggml-base.bin
+
+Vendors/
+`-- Whisper/
+    `-- whisper.xcframework
+
+LinXAppleTests/
+`-- SpeechRecognitionTests.swift
+```
+
+说明：
+
+- 非 UI STT 能力放在 `LinXApple/Sources/SpeechRecognition/`。
+- Chat 专属 ViewModel 和 sheet/overlay 放在 `LinXApple/Sources/ChatUI/`。
+- `AppCore` 只允许补充共享诊断 category，不放音频或推理逻辑。
+- 首版不修改 `PodData` 存储布局。
+- 首版不把 whisper 本地推理放入 `Runtime`，`Runtime` 继续只表示 LinX runtime/OpenAI-compatible API。
+
+### 2.2 数据流
+
+```text
+ChatScene mic button
+-> SpeechInputSheet / SpeechRecognitionViewModel
+-> SpeechAudioRecorder
+-> SpeechAudioConverter
+-> WhisperModelStore
+-> WhisperCppBridge
+-> SpeechTranscriptionResult
+-> ChatScene draftText
+-> user taps existing send button
+-> ChatExperienceModel.enqueueSend(_:) existing flow
+-> PodChatRepository + LinxOpenAIChatService
+```
+
+首版必须保留 `ChatExperienceModel.enqueueSend(_:)` 的语义：只有用户发送后的文本才进入 Pod chat history。
+
+### 2.3 模块边界
+
+| 模块 | STT 相关规则 |
+|---|---|
+| AppCore | 只放 `LinxDiagnostics` speech logger 等共享小能力 |
+| Auth | 不处理录音、转写、模型路径 |
+| ChatUI | 语音入口、状态展示、draft 回填、错误展示 |
+| SpeechRecognition | STT domain、录音、转换、模型查找、whisper bridge |
+| PodData | 首版不存储原始音频或转写历史 |
+| Runtime | 不放本地 whisper 推理 |
+
+---
+
+## 3. 依赖与 artifact
+
+### 3.1 必需依赖
+
+| 依赖 | 来源 | 用途 |
+|---|---|---|
+| whisper.cpp | `ThirdParty/whisper.cpp` 或外部构建源 | 本地 STT 推理 |
+| whisper.xcframework | `Vendors/Whisper/whisper.xcframework` | iOS 可链接二进制 |
+| AVFoundation | Apple SDK | 录音、音频格式读取和转换 |
+| Foundation | Apple SDK | 文件、并发、错误处理 |
+| OSLog | Apple SDK | 性能和错误诊断 |
+| Swift Concurrency | Swift 6 | async/await、actor、取消 |
+
+### 3.2 不新增依赖
+
+首版不新增 SPM 包。不要为 STT 引入额外 UI wrapper、Combine-only abstraction、音频第三方库或模型下载库，除非后续阶段证明 Apple SDK 无法满足需求。
+
+---
+
+## 4. 构建 whisper.xcframework
+
+### 4.1 添加 whisper.cpp
+
+推荐使用 Git submodule，但当前仓库尚未包含该目录，执行前需要确认团队接受 submodule 方式。
 
 ```bash
+cd apple
 mkdir -p ThirdParty
 git submodule add https://github.com/ggml-org/whisper.cpp.git ThirdParty/whisper.cpp
 git submodule update --init --recursive
 ```
 
-### 3.2 构建 iOS XCFramework
+### 4.2 构建 iOS XCFramework
 
 ```bash
-cd ThirdParty/whisper.cpp
+cd apple/ThirdParty/whisper.cpp
 ./build-xcframework.sh
 ```
 
-生成：
+预期产物：
 
 ```text
-ThirdParty/whisper.cpp/build-apple/whisper.xcframework
+apple/ThirdParty/whisper.cpp/build-apple/whisper.xcframework
 ```
 
-### 3.3 复制到工程
+### 4.3 复制到工程
 
 ```bash
+cd apple
 mkdir -p Vendors/Whisper
 cp -R ThirdParty/whisper.cpp/build-apple/whisper.xcframework Vendors/Whisper/
 ```
 
-### 3.4 常见错误
+### 4.4 Header 校验要求
+
+实现 bridge 前必须打开并核对当前版本 C API：
+
+```text
+apple/ThirdParty/whisper.cpp/include/whisper.h
+```
+
+如果只拿到了 `whisper.xcframework`，则从 framework 内部 headers/module map 校验 Swift import 模块名和 C symbols。不要从旧示例复制函数签名。
+
+### 4.5 常见错误
 
 如果出现：
 
@@ -146,7 +245,7 @@ cp -R ThirdParty/whisper.cpp/build-apple/whisper.xcframework Vendors/Whisper/
 iphoneos is not an iOS SDK
 ```
 
-执行：
+先确认 Xcode command line tools 指向完整 Xcode：
 
 ```bash
 sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
@@ -154,167 +253,111 @@ sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
 ---
 
-## 4. XcodeGen 配置
+## 5. XcodeGen 配置
 
-如果现有项目使用 XcodeGen，将以下内容合并到 `project.yml`。
+### 5.1 `project.yml` 修改点
 
-### 4.1 示例 project.yml 片段
+只编辑 `project.yml`，不要手动编辑 `LinXApple.xcodeproj`。
+
+当前 `project.yml` 已经包含：
 
 ```yaml
-name: YourApp
 options:
-  bundleIdPrefix: com.yourcompany
-
-packages: {}
-
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    SWIFT_STRICT_CONCURRENCY: complete
 targets:
-  YourApp:
-    type: application
-    platform: iOS
-    deploymentTarget: "16.0"
+  LinXApple:
     sources:
-      - path: YourApp
-      - path: Features/SpeechRecognition
-      - path: Resources
-    resources:
-      - path: Resources/WhisperModels
-    settings:
-      base:
-        INFOPLIST_FILE: YourApp/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.yourapp
-        SWIFT_VERSION: 5.9
-        ENABLE_BITCODE: NO
+      - path: LinXApple/Sources
+      - path: LinXApple/Resources
+        buildPhase: resources
+        excludes:
+          - Info.plist
+```
+
+接入 `whisper.xcframework` 时，在 `LinXApple` target 的 `dependencies` 中追加：
+
+```yaml
+targets:
+  LinXApple:
     dependencies:
+      - package: AppAuthPackage
+        product: AppAuth
+      - package: ExyteChatPackage
+        product: ExyteChat
+      - package: MarkdownViewPackage
+        product: MarkdownView
       - framework: Vendors/Whisper/whisper.xcframework
         embed: true
         codeSign: true
-
-  YourAppTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "16.0"
-    sources:
-      - path: YourAppTests
-      - path: Features/SpeechRecognition/Tests
-    dependencies:
-      - target: YourApp
 ```
 
-### 4.2 重新生成工程
-
-```bash
-xcodegen generate
-```
-
----
-
-## 5. Package.swift 方案
-
-如果现有工程拆分为 Swift Package，可新增 `SpeechRecognitionKit`。
-
-### 5.1 Package.swift
-
-```swift
-// swift-tools-version: 5.9
-
-import PackageDescription
-
-let package = Package(
-    name: "SpeechRecognitionKit",
-    platforms: [
-        .iOS(.v16)
-    ],
-    products: [
-        .library(
-            name: "SpeechRecognitionKit",
-            targets: ["SpeechRecognitionKit"]
-        )
-    ],
-    targets: [
-        .binaryTarget(
-            name: "Whisper",
-            path: "../../Vendors/Whisper/whisper.xcframework"
-        ),
-        .target(
-            name: "SpeechRecognitionKit",
-            dependencies: ["Whisper"],
-            path: "Sources",
-            resources: [
-                .copy("Resources/WhisperModels")
-            ]
-        ),
-        .testTarget(
-            name: "SpeechRecognitionKitTests",
-            dependencies: ["SpeechRecognitionKit"],
-            path: "Tests"
-        )
-    ]
-)
-```
-
-### 5.2 Package 目录
+模型资源首版放入：
 
 ```text
-Packages/
- └── SpeechRecognitionKit/
-      ├── Package.swift
-      ├── Sources/
-      │    ├── Domain/
-      │    ├── Infrastructure/
-      │    └── UI/
-      ├── Resources/
-      │    └── WhisperModels/
-      └── Tests/
+LinXApple/Resources/WhisperModels/
+```
+
+因为 `LinXApple/Resources` 已经作为 resources build phase 纳入 target，不需要额外 `resources:` 配置。若未来模型迁移到 `Vendors/Whisper/Models/`，再同步更新 `project.yml` resources。
+
+### 5.2 重新生成工程
+
+修改 `project.yml` 后执行：
+
+```bash
+cd apple
+xcodegen generate
 ```
 
 ---
 
 ## 6. Info.plist 权限
 
-添加：
+在 `LinXApple/Resources/Info.plist` 添加：
 
 ```xml
 <key>NSMicrophoneUsageDescription</key>
-<string>需要使用麦克风进行语音识别</string>
+<string>LinX uses the microphone to transcribe speech into chat text on this device.</string>
 ```
 
-如果支持从文件 App 导入音频：
-
-```xml
-<key>UISupportsDocumentBrowser</key>
-<true/>
-```
+首版不支持从 Files app 导入音频，因此不要添加 document browser 配置。如果后续支持本地音频文件导入，再单独更新权限和 UI 流程。
 
 ---
 
-## 7. Domain 层 Skeleton
+## 7. Domain 层设计
 
-### 7.1 TranscriptionService.swift
+Domain 层位于 `LinXApple/Sources/SpeechRecognition/Domain/`。该 app target 内部使用即可，默认使用 internal 可见性；测试通过 `@testable import LinXApple` 访问。
+
+### 7.1 `SpeechTranscriptionProviding.swift`
 
 ```swift
 import Foundation
 
-public protocol TranscriptionService {
+protocol SpeechTranscriptionProviding: Sendable {
     func transcribe(
         audioURL: URL,
-        options: TranscriptionOptions
-    ) async throws -> TranscriptionResult
+        options: SpeechTranscriptionOptions
+    ) async throws -> SpeechTranscriptionResult
 }
 ```
 
-### 7.2 TranscriptionOptions.swift
+### 7.2 `SpeechTranscriptionOptions.swift`
 
 ```swift
 import Foundation
 
-public struct TranscriptionOptions: Equatable, Sendable {
-    public enum Language: Equatable, Sendable {
+struct SpeechTranscriptionOptions: Equatable, Sendable {
+    enum Language: Equatable, Sendable {
         case auto
         case chinese
         case english
         case custom(String)
 
-        public var whisperCode: String? {
+        var whisperCode: String? {
             switch self {
             case .auto:
                 return nil
@@ -328,95 +371,57 @@ public struct TranscriptionOptions: Equatable, Sendable {
         }
     }
 
-    public let language: Language
-    public let translateToEnglish: Bool
-    public let useTimestamps: Bool
-    public let maxAudioDuration: TimeInterval?
-
-    public init(
-        language: Language = .auto,
-        translateToEnglish: Bool = false,
-        useTimestamps: Bool = true,
-        maxAudioDuration: TimeInterval? = nil
-    ) {
-        self.language = language
-        self.translateToEnglish = translateToEnglish
-        self.useTimestamps = useTimestamps
-        self.maxAudioDuration = maxAudioDuration
-    }
+    var language: Language = .auto
+    var translateToEnglish = false
+    var useTimestamps = true
+    var maxAudioDuration: TimeInterval? = 300
 }
 ```
 
-### 7.3 TranscriptionResult.swift
+### 7.3 `SpeechTranscriptionResult.swift`
 
 ```swift
 import Foundation
 
-public struct TranscriptionResult: Equatable, Sendable {
-    public let text: String
-    public let segments: [TranscriptionSegment]
-    public let detectedLanguage: String?
-    public let duration: TimeInterval
-    public let processingTime: TimeInterval
-
-    public init(
-        text: String,
-        segments: [TranscriptionSegment],
-        detectedLanguage: String?,
-        duration: TimeInterval,
-        processingTime: TimeInterval
-    ) {
-        self.text = text
-        self.segments = segments
-        self.detectedLanguage = detectedLanguage
-        self.duration = duration
-        self.processingTime = processingTime
-    }
+struct SpeechTranscriptionResult: Equatable, Sendable {
+    var text: String
+    var segments: [SpeechTranscriptionSegment]
+    var detectedLanguage: String?
+    var audioDuration: TimeInterval
+    var processingDuration: TimeInterval
 }
 
-public struct TranscriptionSegment: Equatable, Sendable, Identifiable {
-    public let id: UUID
-    public let start: TimeInterval
-    public let end: TimeInterval
-    public let text: String
-
-    public init(
-        id: UUID = UUID(),
-        start: TimeInterval,
-        end: TimeInterval,
-        text: String
-    ) {
-        self.id = id
-        self.start = start
-        self.end = end
-        self.text = text
-    }
+struct SpeechTranscriptionSegment: Identifiable, Equatable, Sendable {
+    var id = UUID()
+    var start: TimeInterval
+    var end: TimeInterval
+    var text: String
 }
 ```
 
-### 7.4 TranscriptionState.swift
+### 7.4 `SpeechRecognitionState.swift`
 
 ```swift
 import Foundation
 
-public enum TranscriptionState: Equatable {
+enum SpeechRecognitionState: Equatable, Sendable {
     case idle
     case requestingPermission
     case recording
     case preparingAudio
     case loadingModel
     case transcribing(progress: Double?)
-    case completed(TranscriptionResult)
+    case completed(SpeechTranscriptionResult)
     case failed(String)
 }
 ```
 
-### 7.5 SpeechRecognitionError.swift
+### 7.5 `SpeechRecognitionError.swift`
 
 ```swift
 import Foundation
 
-public enum SpeechRecognitionError: Error, LocalizedError, Equatable {
+enum SpeechRecognitionError: LocalizedError, Equatable, Sendable {
     case microphonePermissionDenied
     case modelNotFound(String)
     case modelLoadFailed(String)
@@ -428,28 +433,28 @@ public enum SpeechRecognitionError: Error, LocalizedError, Equatable {
     case cancelled
     case audioTooLong(maxDuration: TimeInterval)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .microphonePermissionDenied:
-            return "麦克风权限未开启"
+            return "Microphone access is required to transcribe speech."
         case .modelNotFound(let name):
-            return "未找到语音识别模型：\(name)"
+            return "Speech model not found: \(name)."
         case .modelLoadFailed(let reason):
-            return "模型加载失败：\(reason)"
+            return "Speech model failed to load: \(reason)."
         case .recorderUnavailable:
-            return "录音服务不可用"
+            return "Audio recorder is unavailable."
         case .recordingFailed(let reason):
-            return "录音失败：\(reason)"
+            return "Recording failed: \(reason)."
         case .audioConversionFailed(let reason):
-            return "音频转换失败：\(reason)"
+            return "Audio conversion failed: \(reason)."
         case .unsupportedAudioFormat:
-            return "不支持的音频格式"
+            return "Unsupported audio format."
         case .transcriptionFailed(let reason):
-            return "语音识别失败：\(reason)"
+            return "Speech transcription failed: \(reason)."
         case .cancelled:
-            return "识别已取消"
+            return "Speech transcription was cancelled."
         case .audioTooLong(let maxDuration):
-            return "音频过长，最大支持 \(Int(maxDuration)) 秒"
+            return "Audio is too long. Maximum duration is \(Int(maxDuration)) seconds."
         }
     }
 }
@@ -457,563 +462,315 @@ public enum SpeechRecognitionError: Error, LocalizedError, Equatable {
 
 ---
 
-## 8. Infrastructure 层 Skeleton
+## 8. Infrastructure 层设计
 
-### 8.1 WhisperModelManager.swift
+### 8.1 `WhisperModelStore.swift`
+
+职责：查找 bundle 内置模型，后续扩展 Application Support 下载模型。
+
+首版模型目录：
+
+```text
+LinXApple/Resources/WhisperModels/
+```
+
+首版默认模型：
+
+```text
+ggml-base.bin
+```
+
+建议 API：
 
 ```swift
 import Foundation
 
-public final class WhisperModelManager {
-    public enum ModelSize: String, CaseIterable, Sendable {
+final class WhisperModelStore {
+    enum ModelSize: String, CaseIterable, Sendable {
         case tiny = "ggml-tiny"
         case base = "ggml-base"
-        case small = "ggml-small"
     }
 
     private let bundle: Bundle
-    private let modelDirectory: String
+    private let bundleDirectory: String
 
-    public init(
-        bundle: Bundle = .main,
-        modelDirectory: String = "WhisperModels"
-    ) {
+    init(bundle: Bundle = .main, bundleDirectory: String = "WhisperModels") {
         self.bundle = bundle
-        self.modelDirectory = modelDirectory
+        self.bundleDirectory = bundleDirectory
     }
 
-    public func modelPath(for size: ModelSize) throws -> String {
+    func modelURL(for size: ModelSize) throws -> URL {
         guard let url = bundle.url(
             forResource: size.rawValue,
             withExtension: "bin",
-            subdirectory: modelDirectory
+            subdirectory: bundleDirectory
         ) else {
             throw SpeechRecognitionError.modelNotFound(size.rawValue)
         }
-        return url.path
-    }
-
-    public func availableModels() -> [ModelSize] {
-        ModelSize.allCases.filter {
-            try? modelPath(for: $0) != nil
-        }
+        return url
     }
 }
 ```
 
-### 8.2 AudioSessionManager.swift
+### 8.2 `SpeechAudioSessionManager.swift`
 
-```swift
-import AVFoundation
+职责：配置 `AVAudioSession` 用于录音，录音完成后恢复音频会话。
 
-public final class AudioSessionManager {
-    public init() {}
+要求：
 
-    public func configureForRecording() throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(
-            .playAndRecord,
-            mode: .measurement,
-            options: [.defaultToSpeaker, .allowBluetooth]
-        )
-        try session.setActive(true)
-    }
+- 使用 `.playAndRecord` + `.measurement`
+- 允许蓝牙麦克风
+- 停止录音后 deactivate，并使用 `.notifyOthersOnDeactivation`
+- 只在需要录音时激活 audio session
 
-    public func deactivate() {
-        try? AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
-        )
-    }
-}
-```
+### 8.3 `SpeechAudioRecorder.swift`
 
-### 8.3 AudioRecorderService.swift
+职责：请求麦克风权限、开始录音、停止录音并返回临时音频 URL。
 
-```swift
-import AVFoundation
-import Foundation
+要求：
 
-public final class AudioRecorderService: NSObject {
-    private var recorder: AVAudioRecorder?
-    private let audioSessionManager: AudioSessionManager
+- ViewModel 调用时在 MainActor 协调状态
+- 录音文件写入 `FileManager.default.temporaryDirectory`
+- 首版录制 `m4a`，单声道，44.1kHz 或系统合适采样率
+- 权限拒绝时返回 `SpeechRecognitionError.microphonePermissionDenied`
+- `stopRecording()` 在没有 active recorder 时返回 `recorderUnavailable`
 
-    public init(audioSessionManager: AudioSessionManager = AudioSessionManager()) {
-        self.audioSessionManager = audioSessionManager
-        super.init()
-    }
+### 8.4 `SpeechAudioConverter.swift`
 
-    public func requestPermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
-    }
+职责：将录音输出转换为 whisper 兼容 PCM。
 
-    public func startRecording() throws {
-        try audioSessionManager.configureForRecording()
+要求：
 
-        let outputURL = Self.makeRecordingURL()
+- 输入：首版录音产生的 `m4a`；后续可扩展 `wav`、`caf`
+- 输出：16kHz、mono、Float32 PCM
+- 不在 MainActor 执行转换
+- 失败时映射到 `SpeechRecognitionError.audioConversionFailed`
+- 单元测试验证输出格式
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44_100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
+实现可以选择：
 
-        let recorder = try AVAudioRecorder(url: outputURL, settings: settings)
-        recorder.prepareToRecord()
+- 直接输出 temporary `.wav`，由 `WhisperPCMReader` 读取 Float32 PCM
+- 或直接返回 `[Float]` PCM buffer，减少中间文件
 
-        guard recorder.record() else {
-            throw SpeechRecognitionError.recordingFailed("AVAudioRecorder record() returned false")
-        }
+首版优先选择易测试的 `.wav` 文件输出。
 
-        self.recorder = recorder
-    }
+### 8.5 `WhisperTranscriptionService.swift`
 
-    public func stopRecording() throws -> URL {
-        guard let recorder else {
-            throw SpeechRecognitionError.recorderUnavailable
-        }
+职责：orchestrate 模型查找、时长限制、音频转换、bridge 调用和性能日志。
 
-        recorder.stop()
-        self.recorder = nil
-        audioSessionManager.deactivate()
+要求：
 
-        return recorder.url
-    }
-
-    private static func makeRecordingURL() -> URL {
-        let directory = FileManager.default.temporaryDirectory
-        return directory.appendingPathComponent("recording-\(UUID().uuidString).m4a")
-    }
-}
-```
-
-### 8.4 AudioFileConverter.swift
-
-```swift
-import AVFoundation
-import Foundation
-
-public final class AudioFileConverter {
-    public init() {}
-
-    public func convertToWhisperCompatibleWav(inputURL: URL) async throws -> URL {
-        try await Task.detached(priority: .userInitiated) {
-            let inputFile = try AVAudioFile(forReading: inputURL)
-
-            guard let outputFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: 16_000,
-                channels: 1,
-                interleaved: false
-            ) else {
-                throw SpeechRecognitionError.audioConversionFailed("Cannot create output AVAudioFormat")
-            }
-
-            let outputURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("whisper-\(UUID().uuidString).wav")
-
-            guard let converter = AVAudioConverter(
-                from: inputFile.processingFormat,
-                to: outputFormat
-            ) else {
-                throw SpeechRecognitionError.audioConversionFailed("Cannot create AVAudioConverter")
-            }
-
-            let outputFile = try AVAudioFile(
-                forWriting: outputURL,
-                settings: outputFormat.settings
-            )
-
-            let frameCapacity = AVAudioFrameCount(outputFormat.sampleRate)
-            guard let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: outputFormat,
-                frameCapacity: frameCapacity
-            ) else {
-                throw SpeechRecognitionError.audioConversionFailed("Cannot create output buffer")
-            }
-
-            var didReachEnd = false
-
-            while !didReachEnd {
-                try converter.convert(to: outputBuffer) { _, outStatus in
-                    let inputFrameCapacity = AVAudioFrameCount(inputFile.processingFormat.sampleRate)
-
-                    guard let inputBuffer = AVAudioPCMBuffer(
-                        pcmFormat: inputFile.processingFormat,
-                        frameCapacity: inputFrameCapacity
-                    ) else {
-                        outStatus.pointee = .noDataNow
-                        return nil
-                    }
-
-                    do {
-                        try inputFile.read(into: inputBuffer)
-                        if inputBuffer.frameLength == 0 {
-                            outStatus.pointee = .endOfStream
-                            didReachEnd = true
-                            return nil
-                        } else {
-                            outStatus.pointee = .haveData
-                            return inputBuffer
-                        }
-                    } catch {
-                        outStatus.pointee = .endOfStream
-                        didReachEnd = true
-                        return nil
-                    }
-                }
-
-                if outputBuffer.frameLength > 0 {
-                    try outputFile.write(from: outputBuffer)
-                    outputBuffer.frameLength = 0
-                }
-            }
-
-            return outputURL
-        }.value
-    }
-}
-```
+- 实现 `SpeechTranscriptionProviding`
+- 默认 `maxAudioDuration` 为 300 秒
+- 转换和推理都不能在 MainActor 执行
+- 捕获 `CancellationError` 并映射为 `SpeechRecognitionError.cancelled`
+- 成功或失败都通过 `LinxDiagnostics.speech` 打点
 
 ---
 
 ## 9. Whisper C/C++ Bridge 设计
 
-> 说明：具体 symbol 名称需要以当前 `whisper.xcframework` 暴露的 C API 为准。Codex 实现时必须打开 whisper.cpp 的 `whisper.h` 校验函数签名。
+Bridge 位于 `LinXApple/Sources/SpeechRecognition/Bridge/`。
 
-### 9.1 WhisperCppBridge.swift
+### 9.1 实现前置检查
+
+实现 `WhisperCppBridge` 前必须确认：
+
+1. 当前 `whisper.h` 中 context init API 名称
+2. 当前 full params API 名称和字段
+3. Swift 可 import 的 module 名称
+4. `whisper_full` 的 PCM 输入格式要求
+5. segment text/time API 名称
+6. context 释放 API 名称
+7. 是否需要额外 linker flags 或 C++ runtime 设置
+
+不得硬编码未验证的旧 API，例如只凭示例假设 `whisper_init_from_file` 一定存在。
+
+### 9.2 并发和生命周期要求
+
+- whisper context 和 C pointer 不得裸露给 UI 或 `@MainActor` ViewModel
+- 非 Sendable C pointer 需要封装在 actor、单一 serial executor、或严格局部后台执行闭包中
+- 推理执行必须离开 MainActor
+- cancellation 后需要停止后续处理并释放 context
+- 任意 error path 都必须释放 context
+- 多次识别不应复用已释放 context
+- 如果后续缓存 context，需要明确模型切换、内存上限和 teardown 策略
+
+### 9.3 `WhisperCppBridge.swift` API 草案
 
 ```swift
 import Foundation
 
-public final class WhisperCppBridge {
-    public struct Configuration: Sendable {
-        public let modelPath: String
-        public let languageCode: String?
-        public let translateToEnglish: Bool
-        public let useTimestamps: Bool
-
-        public init(
-            modelPath: String,
-            languageCode: String?,
-            translateToEnglish: Bool,
-            useTimestamps: Bool
-        ) {
-            self.modelPath = modelPath
-            self.languageCode = languageCode
-            self.translateToEnglish = translateToEnglish
-            self.useTimestamps = useTimestamps
-        }
+actor WhisperCppBridge {
+    struct Configuration: Sendable {
+        var modelURL: URL
+        var languageCode: String?
+        var translateToEnglish: Bool
+        var useTimestamps: Bool
     }
 
-    public init() {}
-
-    public func transcribe(
-        wavURL: URL,
+    func transcribe(
+        pcmURL: URL,
         configuration: Configuration
-    ) async throws -> TranscriptionResult {
-        try await Task.detached(priority: .userInitiated) {
-            let startTime = Date()
-
-            // TODO:
-            // 1. Read WAV into Float32 PCM array
-            // 2. whisper_init_from_file_with_params / whisper_init_from_file
-            // 3. whisper_full_default_params
-            // 4. configure language / translate / print flags
-            // 5. whisper_full
-            // 6. whisper_full_n_segments
-            // 7. whisper_full_get_segment_text
-            // 8. whisper_full_get_segment_t0 / t1
-            // 9. whisper_free
-
-            throw SpeechRecognitionError.transcriptionFailed(
-                "WhisperCppBridge not implemented. Implement against whisper.h."
-            )
-        }.value
-    }
-}
-```
-
-### 9.2 Codex 实现要求
-
-Codex 必须：
-
-1. 打开 `ThirdParty/whisper.cpp/include/whisper.h`
-2. 校验当前版本 C API
-3. 根据 C API 实现 Swift bridge
-4. 不要硬编码过期函数签名
-5. 确保 context 生命周期正确释放
-6. 确保推理不在主线程执行
-
----
-
-## 10. WhisperTranscriptionService.swift
-
-```swift
-import Foundation
-
-public final class WhisperTranscriptionService: TranscriptionService {
-    private let modelManager: WhisperModelManager
-    private let audioConverter: AudioFileConverter
-    private let bridge: WhisperCppBridge
-    private let modelSize: WhisperModelManager.ModelSize
-
-    public init(
-        modelManager: WhisperModelManager = WhisperModelManager(),
-        audioConverter: AudioFileConverter = AudioFileConverter(),
-        bridge: WhisperCppBridge = WhisperCppBridge(),
-        modelSize: WhisperModelManager.ModelSize = .base
-    ) {
-        self.modelManager = modelManager
-        self.audioConverter = audioConverter
-        self.bridge = bridge
-        self.modelSize = modelSize
-    }
-
-    public func transcribe(
-        audioURL: URL,
-        options: TranscriptionOptions
-    ) async throws -> TranscriptionResult {
-        if let maxDuration = options.maxAudioDuration {
-            let duration = try Self.audioDuration(url: audioURL)
-            guard duration <= maxDuration else {
-                throw SpeechRecognitionError.audioTooLong(maxDuration: maxDuration)
-            }
-        }
-
-        let modelPath = try modelManager.modelPath(for: modelSize)
-        let wavURL = try await audioConverter.convertToWhisperCompatibleWav(inputURL: audioURL)
-
-        let config = WhisperCppBridge.Configuration(
-            modelPath: modelPath,
-            languageCode: options.language.whisperCode,
-            translateToEnglish: options.translateToEnglish,
-            useTimestamps: options.useTimestamps
-        )
-
-        return try await bridge.transcribe(
-            wavURL: wavURL,
-            configuration: config
+    ) async throws -> SpeechTranscriptionResult {
+        // Implementation must be written against the checked whisper.h API.
+        throw SpeechRecognitionError.transcriptionFailed(
+            "WhisperCppBridge is not implemented yet."
         )
     }
-
-    private static func audioDuration(url: URL) throws -> TimeInterval {
-        let asset = AVURLAsset(url: url)
-        return CMTimeGetSeconds(asset.duration)
-    }
 }
 ```
 
-> 注意：该文件需要 import AVFoundation，因为使用了 `AVURLAsset`。
+### 9.4 PCM Reader
+
+`WhisperPCMReader` 负责读取转换后的 16kHz mono Float32 PCM，避免把 WAV parsing 逻辑混进 bridge。
+
+要求：
+
+- 验证采样率为 16kHz
+- 验证 channel count 为 1
+- 输出 `[Float]`
+- 失败时抛 `unsupportedAudioFormat` 或 `audioConversionFailed`
 
 ---
 
-## 11. ViewModel Skeleton
+## 10. ChatUI 集成
 
-```swift
-import Foundation
-import Combine
+### 10.1 首版交互
 
-@MainActor
-public final class SpeechRecognitionViewModel: ObservableObject {
-    @Published public private(set) var state: TranscriptionState = .idle
-    @Published public private(set) var transcribedText: String = ""
+首版不要新增独立 demo 首页。直接在 `ChatScene` 中增加语音输入入口。
 
-    private let recorder: AudioRecorderService
-    private let transcriptionService: TranscriptionService
-    private var currentTask: Task<Void, Never>?
-
-    public init(
-        recorder: AudioRecorderService = AudioRecorderService(),
-        transcriptionService: TranscriptionService = WhisperTranscriptionService()
-    ) {
-        self.recorder = recorder
-        self.transcriptionService = transcriptionService
-    }
-
-    public func startRecording() async {
-        state = .requestingPermission
-
-        let granted = await recorder.requestPermission()
-        guard granted else {
-            state = .failed(SpeechRecognitionError.microphonePermissionDenied.localizedDescription)
-            return
-        }
-
-        do {
-            try recorder.startRecording()
-            state = .recording
-        } catch {
-            state = .failed(error.localizedDescription)
-        }
-    }
-
-    public func stopRecordingAndTranscribe() {
-        currentTask?.cancel()
-
-        currentTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                let audioURL = try self.recorder.stopRecording()
-                self.state = .preparingAudio
-
-                let result = try await self.transcriptionService.transcribe(
-                    audioURL: audioURL,
-                    options: TranscriptionOptions(
-                        language: .auto,
-                        translateToEnglish: false,
-                        useTimestamps: true,
-                        maxAudioDuration: 300
-                    )
-                )
-
-                self.transcribedText = result.text
-                self.state = .completed(result)
-            } catch {
-                self.state = .failed(error.localizedDescription)
-            }
-        }
-    }
-
-    public func cancel() {
-        currentTask?.cancel()
-        currentTask = nil
-        state = .idle
-    }
-}
-```
-
----
-
-## 12. SwiftUI 示例 UI
-
-```swift
-import SwiftUI
-
-public struct SpeechRecognitionView: View {
-    @StateObject private var viewModel = SpeechRecognitionViewModel()
-
-    public init() {}
-
-    public var body: some View {
-        VStack(spacing: 20) {
-            Text("Local STT")
-                .font(.title.bold())
-
-            statusView
-
-            ScrollView {
-                Text(viewModel.transcribedText.isEmpty ? "识别结果将在这里显示" : viewModel.transcribedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-            }
-
-            HStack {
-                Button("开始录音") {
-                    Task {
-                        await viewModel.startRecording()
-                    }
-                }
-
-                Button("停止并识别") {
-                    viewModel.stopRecordingAndTranscribe()
-                }
-
-                Button("取消") {
-                    viewModel.cancel()
-                }
-            }
-        }
-        .padding()
-    }
-
-    @ViewBuilder
-    private var statusView: some View {
-        switch viewModel.state {
-        case .idle:
-            Text("空闲")
-        case .requestingPermission:
-            Text("请求麦克风权限中")
-        case .recording:
-            Text("录音中")
-        case .preparingAudio:
-            Text("准备音频中")
-        case .loadingModel:
-            Text("加载模型中")
-        case .transcribing:
-            Text("识别中")
-        case .completed:
-            Text("识别完成")
-        case .failed(let message):
-            Text("失败：\(message)")
-                .foregroundStyle(.red)
-        }
-    }
-}
-```
-
----
-
-## 13. UIKit 接入方式
-
-如果现有 App 是 UIKit，不要强行引入 SwiftUI 页面。使用 ViewModel + UIKit 绑定。
-
-```swift
-final class SpeechRecognitionViewController: UIViewController {
-    private let viewModel = SpeechRecognitionViewModel()
-
-    private let textView = UITextView()
-    private let recordButton = UIButton(type: .system)
-    private let stopButton = UIButton(type: .system)
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupUI()
-        bindViewModel()
-    }
-
-    private func setupUI() {
-        recordButton.setTitle("开始录音", for: .normal)
-        stopButton.setTitle("停止并识别", for: .normal)
-
-        recordButton.addTarget(self, action: #selector(startRecording), for: .touchUpInside)
-        stopButton.addTarget(self, action: #selector(stopRecording), for: .touchUpInside)
-    }
-
-    private func bindViewModel() {
-        // 如果项目使用 Combine，在这里订阅 @Published
-        // 如果没有 Combine，可改为 closure callback
-    }
-
-    @objc private func startRecording() {
-        Task {
-            await viewModel.startRecording()
-        }
-    }
-
-    @objc private func stopRecording() {
-        viewModel.stopRecordingAndTranscribe()
-    }
-}
-```
-
----
-
-## 14. 模型文件策略
-
-### 14.1 首版
-
-内置：
+推荐交互：
 
 ```text
-ggml-tiny.bin
-ggml-base.bin
+mic button tap
+-> present SpeechInputSheet
+-> request microphone permission
+-> start recording
+-> stop
+-> transcribe
+-> pass result text back to ChatScene
+-> ChatScene appends/replaces draftText
+-> user reviews and taps existing send button
+```
+
+### 10.2 `SpeechRecognitionViewModel.swift`
+
+位置：
+
+```text
+LinXApple/Sources/ChatUI/SpeechRecognitionViewModel.swift
+```
+
+职责：
+
+- `@MainActor final class SpeechRecognitionViewModel: ObservableObject`
+- 管理 `SpeechRecognitionState`
+- 调用 recorder 开始/停止录音
+- 调用 `SpeechTranscriptionProviding` 转写
+- 暴露 `transcribedText`
+- 支持 cancel
+- 不直接 import 或调用 whisper C API
+
+约束：
+
+- 从 SwiftUI event handler 使用 `Task { await viewModel.startRecording() }`
+- 不使用 detached task 管理 UI 状态
+- `currentTask` 取消时恢复状态
+- 错误只展示给语音输入 UI 或 `ChatScene` 的轻量错误提示，不混入认证/Pod 错误语义
+
+### 10.3 `SpeechInputSheet.swift`
+
+位置：
+
+```text
+LinXApple/Sources/ChatUI/SpeechInputSheet.swift
+```
+
+职责：
+
+- 展示录音、转写、失败、完成状态
+- 提供开始、停止、取消按钮
+- 转写成功后调用 `onTranscript(String)`
+- 使用 LinX 现有颜色和 SwiftUI 风格
+- 不做独立 marketing/demo 页面
+
+### 10.4 `ChatScene.swift` 修改点
+
+在 `ChatScene` 中：
+
+- 新增 mic button 或 toolbar item
+- 持有 sheet presentation state
+- 接收 transcript 后写入 `draftText`
+- 保持 `send(_:)` 仍只调用 `viewModel.enqueueSend(draft.text)`
+
+草案：
+
+```swift
+private func applyTranscript(_ text: String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.isEmpty == false else { return }
+
+    if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        draftText = trimmed
+    } else {
+        draftText += "\n" + trimmed
+    }
+}
+```
+
+---
+
+## 11. 性能日志与隐私
+
+### 11.1 `LinxDiagnostics` 扩展
+
+在 `LinXApple/Sources/AppCore/LinxDiagnostics.swift` 新增：
+
+```swift
+static let speech = Logger(subsystem: subsystem, category: "speech")
+```
+
+### 11.2 记录字段
+
+允许记录：
+
+```text
+audioDuration
+conversionDuration
+modelLoadDuration
+transcriptionDuration
+totalDuration
+modelName
+iOSVersion
+deviceClass
+errorHash
+```
+
+禁止记录：
+
+```text
+raw audio path
+raw transcript text
+WebID
+access token
+refresh token
+local absolute model path
+```
+
+错误日志使用 `LinxDiagnostics.fingerprint(_:)` 对敏感值取 hash。
+
+---
+
+## 12. 模型文件策略
+
+### 12.1 首版
+
+内置一个或两个模型：
+
+```text
+LinXApple/Resources/WhisperModels/ggml-tiny.bin
+LinXApple/Resources/WhisperModels/ggml-base.bin
 ```
 
 默认：
@@ -1022,26 +779,15 @@ ggml-base.bin
 ggml-base.bin
 ```
 
-### 14.2 生产版
+如果包体积压力较大，首版只内置 `ggml-tiny.bin`，把 `base` 放到后续下载阶段。
 
-建议：
-
-```text
-App 首包：tiny 或 base
-首次进入语音功能：提示下载 small
-高端设备：small
-低端设备：tiny/base
-```
-
-### 14.3 模型下载目录
+### 12.2 后续下载目录
 
 ```text
 Application Support/WhisperModels/
 ```
 
-### 14.4 模型校验
-
-维护：
+后续下载模型需要维护 manifest：
 
 ```json
 {
@@ -1056,560 +802,533 @@ Application Support/WhisperModels/
 }
 ```
 
+首版不实现下载和 manifest 校验，但 `WhisperModelStore` 的接口应保留扩展空间。
+
 ---
 
-## 15. 性能与线程要求
+## 13. 测试计划
 
-### 15.1 必须遵守
+### 13.1 单元测试位置
 
-- 禁止主线程推理
-- 禁止主线程音频转换
-- 推理 Task 使用 `.userInitiated`
-- UI 状态更新必须回到 MainActor
-- 长音频必须限制最大时长或分片
-
-### 15.2 性能日志
-
-记录：
+测试放入现有 target：
 
 ```text
-audio_duration
-conversion_time
-model_load_time
-transcription_time
-total_time
-model_name
-device_model
-iOS_version
+LinXAppleTests/SpeechRecognitionTests.swift
 ```
 
-建议封装：
+或按主题拆分：
+
+```text
+LinXAppleTests/WhisperModelStoreTests.swift
+LinXAppleTests/SpeechAudioConverterTests.swift
+LinXAppleTests/SpeechRecognitionViewModelTests.swift
+```
+
+不要新增 test target 或独立 scheme。
+
+### 13.2 必测用例
+
+`WhisperModelStoreTests`：
 
 ```swift
-public struct STTPerformanceLog {
-    public let audioDuration: TimeInterval
-    public let conversionTime: TimeInterval
-    public let modelLoadTime: TimeInterval
-    public let transcriptionTime: TimeInterval
-    public let totalTime: TimeInterval
-    public let modelName: String
-}
+func testModelURL_whenModelExists_returnsURL()
+func testModelURL_whenModelMissing_throwsModelNotFound()
 ```
 
----
-
-## 16. 测试计划
-
-### 16.1 单元测试
-
-#### WhisperModelManagerTests
+`SpeechAudioConverterTests`：
 
 ```swift
-func testModelPath_whenModelExists_returnsPath()
-func testModelPath_whenModelMissing_throwsModelNotFound()
-func testAvailableModels_returnsExistingModels()
+func testConvertToWhisperPCM_outputsFile()
+func testConvertToWhisperPCM_outputs16kMonoFloat32()
+func testConvertInvalidFile_throwsConversionFailure()
 ```
 
-#### AudioFileConverterTests
-
-```swift
-func testConvertToWhisperCompatibleWav_outputsFile()
-func testConvertToWhisperCompatibleWav_outputs16kMono()
-func testConvertInvalidFile_throws()
-```
-
-#### SpeechRecognitionViewModelTests
+`SpeechRecognitionViewModelTests`：
 
 ```swift
 func testStartRecording_whenPermissionDenied_setsFailedState()
 func testStopRecording_whenTranscriptionSucceeds_setsCompletedState()
 func testCancel_setsIdleState()
+func testStopRecording_whenTranscriptionFails_setsFailedState()
 ```
 
-### 16.2 集成测试
+`WhisperTranscriptionServiceTests`：
 
-准备音频：
-
-```text
-sample-zh-10s.wav
-sample-en-10s.wav
-sample-mixed-10s.wav
-sample-zh-60s.wav
-sample-noisy-10s.wav
+```swift
+func testTranscribe_whenAudioTooLong_throwsAudioTooLong()
+func testTranscribe_whenModelMissing_throwsModelNotFound()
+func testTranscribe_whenCancelled_mapsCancellation()
 ```
 
-指标：
+### 13.3 Test doubles
 
-```text
-是否成功
-识别文本
-耗时
-内存峰值
-CPU 峰值
-是否阻塞 UI
+模拟器和 CI 不依赖真实麦克风或大模型。
+
+需要提供 fake：
+
+- fake recorder permission granted/denied
+- fake recorder output URL
+- fake transcription service success/failure/cancellation
+- fake model store
+- fake bridge
+
+真实 whisper 模型集成测试可以使用 `XCTSkip`，或归入手动真机验证。
+
+### 13.4 验证命令
+
+修改 `project.yml` 后：
+
+```bash
+cd apple
+xcodegen generate
 ```
 
-### 16.3 真机测试矩阵
+从仓库根目录运行测试：
 
-```text
-iPhone 13
-iPhone 14/15/16/17
-低电量模式
-蓝牙耳机麦克风
-AirPods
-飞行模式
-弱电量
-锁屏中断
-来电中断
-后台切前台
+```bash
+xcodebuild test \
+  -project apple/LinXApple.xcodeproj \
+  -scheme LinXApple \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
 ```
 
 ---
 
-## 17. Codex 执行任务拆分
+## 14. 真机验证矩阵
 
-### Task 1: 检查现有工程结构
+首版必须真机验证：
 
-Codex 操作：
+- 首次麦克风权限允许
+- 首次麦克风权限拒绝
+- 录音开始/停止
+- 录音中取消
+- 转写中取消
+- 模型缺失错误
+- 10 秒中文
+- 10 秒英文
+- 10 秒中英混合
+- 60 秒中文或中英混合
+- 蓝牙耳机麦克风
+- AirPods
+- 锁屏/来电/后台切前台中断
+- 低电量模式
 
-1. 识别项目是 Xcode project / workspace / XcodeGen / Swift Package
-2. 找到 App target
-3. 找到 Info.plist
-4. 找到资源目录
-5. 输出接入点说明
+记录指标：
+
+```text
+success/failure
+audioDuration
+conversionDuration
+transcriptionDuration
+totalDuration
+peakMemory
+noticeableUIStall
+deviceModel
+iOSVersion
+modelName
+```
+
+---
+
+## 15. 执行任务拆分
+
+### Task 1: 结构确认
 
 验收：
 
 ```text
-能明确回答：
-- App Target 名称
-- 是否使用 XcodeGen
-- 是否使用 Swift Package
-- Info.plist 路径
-- 资源目录路径
+App target: LinXApple
+Build system: XcodeGen project.yml
+Info.plist: LinXApple/Resources/Info.plist
+Sources: LinXApple/Sources
+Resources: LinXApple/Resources
+Tests: LinXAppleTests
 ```
 
----
+### Task 2: 引入 whisper artifact
 
-### Task 2: 引入 whisper.xcframework
+操作：
 
-Codex 操作：
-
-1. 检查 `Vendors/Whisper/whisper.xcframework` 是否存在
-2. 如果不存在，提示需要先运行 `build-xcframework.sh`
-3. 将 framework 加入 App target
-4. 设置 Embed & Sign
-5. 确保真机可链接
+1. 添加或确认 `ThirdParty/whisper.cpp`
+2. 构建 `whisper.xcframework`
+3. 复制到 `Vendors/Whisper/whisper.xcframework`
+4. 打开 `whisper.h` 或 framework headers 校验 API
 
 验收：
 
 ```text
-工程能编译
-App target linked frameworks 中包含 whisper.xcframework
+Vendors/Whisper/whisper.xcframework exists
+Current C API has been checked
+Swift import module name is known
 ```
 
----
+### Task 3: 更新 XcodeGen 和权限
 
-### Task 3: 添加 Domain 层
+操作：
 
-Codex 操作：
+1. 在 `project.yml` 中为 `LinXApple` 添加 framework dependency
+2. 在 `LinXApple/Resources/Info.plist` 添加 microphone usage string
+3. 运行 `xcodegen generate`
+
+验收：
+
+```text
+Project regenerates
+LinXApple links whisper.xcframework
+Info.plist contains NSMicrophoneUsageDescription
+```
+
+### Task 4: 添加 Domain 层
 
 创建：
 
 ```text
-TranscriptionService.swift
-TranscriptionOptions.swift
-TranscriptionResult.swift
-TranscriptionState.swift
-SpeechRecognitionError.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionProviding.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionOptions.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionResult.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechRecognitionState.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechRecognitionError.swift
 ```
 
 验收：
 
 ```text
-Domain 层无 UI 依赖
-Domain 层无 whisper.cpp 依赖
-可以单独编译
+No UI dependency
+No whisper C API dependency
+Sendable/Equatable requirements satisfied
 ```
 
----
-
-### Task 4: 添加模型管理
-
-Codex 操作：
+### Task 5: 添加录音与音频会话
 
 创建：
 
 ```text
-WhisperModelManager.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioSessionManager.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioRecorder.swift
 ```
-
-功能：
-
-- 查找 Bundle 模型
-- 返回可用模型
-- 抛出 modelNotFound
 
 验收：
 
 ```text
-模型存在时返回路径
-模型不存在时抛出明确错误
+Permission denied does not crash
+Start/stop returns temporary audio URL on device
+Audio session deactivates after stop/cancel
 ```
-
----
-
-### Task 5: 添加录音服务
-
-Codex 操作：
-
-创建：
-
-```text
-AudioSessionManager.swift
-AudioRecorderService.swift
-```
-
-功能：
-
-- 请求麦克风权限
-- 开始录音
-- 停止录音并返回 URL
-- 录音失败时返回明确错误
-
-验收：
-
-```text
-真机可以录音
-拒绝权限时不会崩溃
-```
-
----
 
 ### Task 6: 添加音频转换
 
-Codex 操作：
+创建：
+
+```text
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioConverter.swift
+LinXApple/Sources/SpeechRecognition/Bridge/WhisperPCMReader.swift
+```
+
+验收：
+
+```text
+Output is 16kHz mono Float32
+Conversion does not run on MainActor
+Invalid input maps to conversion error
+```
+
+### Task 7: 添加模型查找
 
 创建：
 
 ```text
-AudioFileConverter.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/WhisperModelStore.swift
+LinXApple/Resources/WhisperModels/ggml-tiny.bin
+LinXApple/Resources/WhisperModels/ggml-base.bin
 ```
-
-功能：
-
-- 输入 m4a / wav / caf
-- 输出 whisper 兼容 wav
-- 16kHz
-- mono
-- Float32 PCM
 
 验收：
 
 ```text
-输出文件存在
-输出格式正确
-转换不阻塞 UI
+Bundle model lookup succeeds when file exists
+Missing model throws modelNotFound
+No absolute developer machine paths
 ```
 
----
-
-### Task 7: 实现 WhisperCppBridge
-
-Codex 操作：
-
-1. 打开当前 whisper.cpp 的 `whisper.h`
-2. 校验 C API
-3. 实现 WAV 读取
-4. 实现 whisper context 初始化
-5. 实现 full params 配置
-6. 实现 transcribe
-7. 实现 segments 解析
-8. 释放 context
-
-验收：
-
-```text
-sample wav 可以转写
-context 不泄漏
-多次识别不崩溃
-```
-
----
-
-### Task 8: 实现 WhisperTranscriptionService
-
-Codex 操作：
+### Task 8: 实现 Whisper bridge
 
 创建：
 
 ```text
-WhisperTranscriptionService.swift
+LinXApple/Sources/SpeechRecognition/Bridge/WhisperCppBridge.swift
 ```
 
-功能：
+操作：
 
-- 校验音频时长
-- 调用 AudioFileConverter
-- 调用 WhisperCppBridge
-- 返回 TranscriptionResult
+1. 根据当前 `whisper.h` 实现 context init
+2. 设置 full params、language、translate、timestamp flags
+3. 调用 full transcription
+4. 解析 segments text、start、end
+5. 释放 context
+6. 处理 cancellation/error path
 
 验收：
 
 ```text
-业务层只依赖 TranscriptionService protocol
+Sample wav can transcribe on device
+Repeated transcription does not crash
+Context is released on success/failure/cancel
 ```
 
----
-
-### Task 9: 接入 ViewModel
-
-Codex 操作：
+### Task 9: 实现 transcription service
 
 创建：
 
 ```text
-SpeechRecognitionViewModel.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/WhisperTranscriptionService.swift
 ```
-
-功能：
-
-- 开始录音
-- 停止录音并识别
-- 取消
-- 状态更新
-- 错误展示
 
 验收：
 
 ```text
-状态流转正确
-UI 不直接调用 whisper bridge
+Implements SpeechTranscriptionProviding
+Enforces maxAudioDuration
+Runs conversion and inference off MainActor
+Logs performance without leaking transcript/audio path
 ```
 
----
+### Task 10: 接入 ChatUI
 
-### Task 10: 添加 Demo UI
+创建或修改：
 
-Codex 操作：
-
-根据项目类型选择：
-
-- SwiftUI：添加 `SpeechRecognitionView`
-- UIKit：添加 `SpeechRecognitionViewController`
+```text
+LinXApple/Sources/ChatUI/SpeechRecognitionViewModel.swift
+LinXApple/Sources/ChatUI/SpeechInputSheet.swift
+LinXApple/Sources/ChatUI/ChatScene.swift
+```
 
 验收：
 
 ```text
-可以从现有 App 进入测试页面
-可以录音并显示转写结果
+Mic entry is available in ChatScene
+Transcript fills draftText
+User must manually send
+UI does not call WhisperCppBridge directly
 ```
-
----
 
 ### Task 11: 添加测试
 
-Codex 操作：
+创建：
 
-添加单元测试和 sample audio。
+```text
+LinXAppleTests/SpeechRecognitionTests.swift
+```
 
 验收：
 
 ```text
-至少覆盖：
-- model manager
-- audio converter
-- view model happy path
-- error path
+Model store tests pass
+Audio converter tests pass or skip only when simulator fixture unavailable
+ViewModel fake-recorder/fake-transcriber tests pass
+Service duration/error tests pass
 ```
 
----
-
-### Task 12: 性能优化
-
-Codex 操作：
-
-1. 添加性能日志
-2. 确认推理后台执行
-3. 确认长音频限制
-4. 检查内存峰值
+### Task 12: 真机性能验证
 
 验收：
 
 ```text
-10s 音频稳定
-60s 音频稳定
-UI 不掉帧明显
-无主线程卡死
+10s audio stable
+60s audio stable
+UI remains responsive
+No repeated-run crash
+No obvious memory leak
 ```
 
 ---
 
-## 18. App Store 风险与策略
+## 16. App Store 风险与策略
 
-### 18.1 包体积
+### 16.1 包体积
 
 风险：
 
 ```text
-模型文件较大，可能显著增加 App 包体积
+Whisper model files can significantly increase app size.
 ```
 
 策略：
 
 ```text
-首包内置 tiny/base
-small/medium 按需下载
+First bundle tiny or base only.
+Move small/medium models to later on-demand download.
 ```
 
-### 18.2 隐私说明
+### 16.2 隐私说明
 
 需要在隐私文案中说明：
 
 ```text
-语音数据在本地设备处理
-不上传服务器
+Speech is transcribed locally on device.
+Audio is not uploaded for STT.
+Only text that the user sends enters normal chat storage and runtime flow.
 ```
 
-### 18.3 权限弹窗
+### 16.3 权限弹窗
 
 麦克风权限文案应明确：
 
 ```text
-用于本地语音转文字，不会上传录音
+Used to transcribe speech into chat text on this device.
 ```
 
 ---
 
-## 19. Core ML 后续增强
+## 17. 后续增强
 
-### 19.1 目标
+### 17.1 本地音频文件转写
 
-使用 Core ML 加速 encoder。
+后续可增加 Files app importer：
 
-### 19.2 注意事项
+- 更新 Info.plist 和 document picker UI
+- 复用 `SpeechAudioConverter`
+- 添加文件大小和时长限制
+- 不自动发送，仍先回填 draft
 
-即使启用 Core ML encoder：
+### 17.2 模型下载和切换
+
+后续扩展：
+
+- `Application Support/WhisperModels/`
+- manifest sha256 校验
+- 下载进度 UI
+- tiny/base/small 选择
+- 设备性能分级默认模型
+
+### 17.3 Core ML encoder 加速
+
+后续任务：
 
 ```text
-仍然需要 ggml 模型文件
-decoder 仍由 whisper.cpp 执行
+1. Generate encoder mlmodel from matching whisper.cpp version
+2. Compile mlmodelc
+3. Bundle or download mlmodelc with matching ggml model
+4. Enable Core ML params in bridge after API verification
+5. Compare device transcription duration and memory
 ```
 
-### 19.3 任务
+注意：即使启用 Core ML encoder，仍然需要 ggml 模型，decoder 仍由 whisper.cpp 执行。
 
-```text
-1. 生成 encoder mlmodel
-2. 编译为 mlmodelc
-3. 放入 Bundle
-4. bridge 中启用 Core ML 参数
-5. 真机对比耗时
-```
+### 17.4 长音频分片
+
+后续扩展：
+
+- 超过 300 秒音频分片处理
+- segment 合并
+- cancellation-aware batch pipeline
+- 后台任务和内存峰值控制
 
 ---
 
-## 20. Definition of Done
+## 18. Definition of Done
 
-### 20.1 编译
+### 18.1 编译
 
-- Debug 编译通过
-- Release 编译通过
-- 真机编译通过
-- CI 编译通过
+- `xcodegen generate` 成功
+- Debug build 成功
+- Release build 成功
+- Simulator tests 成功
+- 真机 build 成功
 
-### 20.2 功能
+### 18.2 功能
 
-- 麦克风录音成功
-- 本地音频转写成功
-- 中文识别成功
-- 英文识别成功
-- 中英混合识别成功
-- 权限拒绝有提示
-- 模型缺失有提示
+- 麦克风权限允许后可录音
+- 麦克风权限拒绝有明确提示
+- 录音停止后可本地转写
+- 转写文本回填聊天 draft
+- 用户手动发送后复用现有 chat flow
+- 模型缺失有明确提示
+- 转写中可取消
 
-### 20.3 工程
+### 18.3 工程
 
-- STT 能力封装为独立模块
-- 业务层依赖 protocol
+- STT 能力封装在 `SpeechRecognition`
+- Chat UI 只依赖 ViewModel/protocol，不直接调用 C bridge
+- `ChatExperienceModel.enqueueSend(_:)` 语义不变
 - 无主线程推理
-- 无强耦合 UI
-- 有基础单元测试
+- 无主线程音频转换
+- 无硬编码本机绝对路径
+- 有 fake-based 单元测试
 
-### 20.4 性能
+### 18.4 性能
 
 - 10 秒音频稳定识别
 - 60 秒音频稳定识别
 - 推理期间 UI 可操作
 - 多次识别不崩溃
-- 内存无明显泄漏
+- 无明显内存泄漏
 
 ---
 
-## 21. 给 Codex 的执行要求
+## 19. 执行纪律
 
-Codex 在执行本 PLAN 时必须遵守：
+执行本计划时必须遵守：
 
-1. 不要一次性大范围重构现有工程
-2. 先识别项目结构，再修改
-3. 每个 Task 单独提交
-4. 每个 Task 后运行编译
-5. 不能主线程执行推理
-6. 不能把模型路径硬编码为开发机绝对路径
-7. 不能把 whisper 示例 App 直接复制成生产代码
-8. 需要用 protocol 隔离 STT provider
-9. 需要保留未来替换 Provider 的扩展点
-10. 需要在最终报告中列出：
-    - 修改文件
-    - 新增文件
-    - 编译结果
-    - 测试结果
-    - 已知限制
+1. 不做大范围无关重构
+2. 不复制 whisper 示例 app 作为生产代码
+3. 不手动编辑 generated `LinXApple.xcodeproj`
+4. 修改 `project.yml` 后运行 `xcodegen generate`
+5. 每个阶段后至少运行可用的编译或测试命令
+6. 不把 raw audio、transcript、token、WebID 写入日志
+7. 不把模型路径硬编码为开发机绝对路径
+8. 保留 provider 替换扩展点
+9. 首版转写只回填 draft，不自动发送
+10. 最终报告列出修改文件、新增文件、编译结果、测试结果、已知限制
 
 ---
 
-## 22. 推荐提交顺序
+## 20. 推荐提交顺序
 
 ```text
 commit 1: add speech recognition domain models
-commit 2: add whisper model manager
+commit 2: add whisper model store
 commit 3: add audio recording service
 commit 4: add audio conversion pipeline
 commit 5: add whisper cpp bridge
 commit 6: add whisper transcription service
-commit 7: add view model
-commit 8: add demo UI
-commit 9: add tests
-commit 10: add performance logging
+commit 7: add speech recognition view model
+commit 8: integrate speech input into chat scene
+commit 9: add speech recognition tests
+commit 10: add speech diagnostics and performance validation
 ```
 
 ---
 
-## 23. 最终文件清单
+## 21. 最终文件清单
 
 ```text
-Features/SpeechRecognition/Domain/TranscriptionService.swift
-Features/SpeechRecognition/Domain/TranscriptionOptions.swift
-Features/SpeechRecognition/Domain/TranscriptionResult.swift
-Features/SpeechRecognition/Domain/TranscriptionState.swift
-Features/SpeechRecognition/Domain/SpeechRecognitionError.swift
+project.yml
+LinXApple/Resources/Info.plist
+LinXApple/Resources/WhisperModels/ggml-tiny.bin
+LinXApple/Resources/WhisperModels/ggml-base.bin
 
-Features/SpeechRecognition/Infrastructure/WhisperModelManager.swift
-Features/SpeechRecognition/Infrastructure/WhisperCppBridge.swift
-Features/SpeechRecognition/Infrastructure/WhisperTranscriptionService.swift
-Features/SpeechRecognition/Infrastructure/AudioRecorderService.swift
-Features/SpeechRecognition/Infrastructure/AudioFileConverter.swift
-Features/SpeechRecognition/Infrastructure/AudioSessionManager.swift
+LinXApple/Sources/AppCore/LinxDiagnostics.swift
 
-Features/SpeechRecognition/ViewModel/SpeechRecognitionViewModel.swift
-Features/SpeechRecognition/UI/SpeechRecognitionView.swift
-Features/SpeechRecognition/UI/SpeechRecognitionViewController.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionProviding.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionOptions.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechTranscriptionResult.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechRecognitionState.swift
+LinXApple/Sources/SpeechRecognition/Domain/SpeechRecognitionError.swift
+
+LinXApple/Sources/SpeechRecognition/Infrastructure/WhisperModelStore.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/WhisperTranscriptionService.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioRecorder.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioConverter.swift
+LinXApple/Sources/SpeechRecognition/Infrastructure/SpeechAudioSessionManager.swift
+
+LinXApple/Sources/SpeechRecognition/Bridge/WhisperCppBridge.swift
+LinXApple/Sources/SpeechRecognition/Bridge/WhisperPCMReader.swift
+
+LinXApple/Sources/ChatUI/SpeechRecognitionViewModel.swift
+LinXApple/Sources/ChatUI/SpeechInputSheet.swift
+LinXApple/Sources/ChatUI/ChatScene.swift
 
 Vendors/Whisper/whisper.xcframework
 
-Resources/WhisperModels/ggml-tiny.bin
-Resources/WhisperModels/ggml-base.bin
-
-Tests/SpeechRecognition/WhisperModelManagerTests.swift
-Tests/SpeechRecognition/AudioFileConverterTests.swift
-Tests/SpeechRecognition/SpeechRecognitionViewModelTests.swift
+LinXAppleTests/SpeechRecognitionTests.swift
 ```
