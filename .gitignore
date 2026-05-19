@@ -56,6 +56,10 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# Local speech model artifacts
+apple/LinXApple/Resources/WhisperModels/*.bin
+apple/LinXApple/Resources/WhisperModels/*.mlmodelc/
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/

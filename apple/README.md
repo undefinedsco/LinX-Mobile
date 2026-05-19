@@ -40,8 +40,7 @@ apple/
 Dependencies are declared in `project.yml`:
 
 - `AppAuth` `2.0.0`
-- `ExyteChat` `3.0.2`
-- `SwiftOpenAI` `4.4.9`
+- `ExyteChat` `3.1.1`
 - `MarkdownView` `2.6.1`
 
 ## Source Modules
@@ -82,10 +81,26 @@ Important files:
 
 - `ChatExperienceModel.swift`
 - `ChatScene.swift`
+- `SpeechInputSheet.swift`
+- `SpeechRecognitionViewModel.swift`
 - `LoginView.swift`
 - `ThreadListView.swift`
 - `AssistantMarkdownBubble.swift`
 - `ExyteMessageAdapter.swift`
+
+### SpeechRecognition
+
+Local speech-to-text domain, audio recording, audio conversion, model lookup,
+and the whisper.cpp bridge boundary.
+
+Important files:
+
+- `SpeechTranscriptionProviding.swift`
+- `SpeechAudioRecorder.swift`
+- `SpeechAudioConverter.swift`
+- `WhisperModelStore.swift`
+- `WhisperTranscriptionService.swift`
+- `WhisperCppBridge.swift`
 
 ### PodData
 
@@ -188,6 +203,91 @@ Existing tests cover:
 - SPARQL literal escaping
 - PKCE authorization request construction
 - launch-to-login UI behavior
+- speech model lookup, audio conversion, service orchestration, and speech view
+  model state transitions
+
+## Release Workflow
+
+The App Store Connect release entry point is `scripts/release-ios.sh`. It wraps
+repo-local asc workflow files under `.asc/` and keeps generated archives, IPAs,
+reports, runs, and credentials out of source control.
+
+Install asc:
+
+```sh
+brew install asc
+```
+
+Create an App Store Connect API key in App Store Connect, then register it with
+asc on local machines:
+
+```sh
+asc auth login \
+  --name "LinXApple" \
+  --key-id "<KEY_ID>" \
+  --issuer-id "<ISSUER_ID>" \
+  --private-key /path/to/AuthKey_<KEY_ID>.p8
+```
+
+Use `ASC_PROFILE=LinXApple` when the keychain profile is not the default. In CI,
+set `ASC_BYPASS_KEYCHAIN=1` and provide credentials through CI secrets or an
+untracked `.asc/config.json`.
+
+Run the preflight checks:
+
+```sh
+./scripts/release-ios.sh doctor
+VERSION=0.1.1 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> ./scripts/release-ios.sh validate
+```
+
+Dry-run TestFlight and App Store workflows before mutating App Store Connect:
+
+```sh
+DRY_RUN=1 \
+VERSION=0.1.1 \
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+TESTFLIGHT_GROUP="External Testers" \
+./scripts/release-ios.sh testflight
+
+DRY_RUN=1 \
+VERSION=0.1.1 \
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+./scripts/release-ios.sh appstore
+```
+
+Upload and distribute TestFlight:
+
+```sh
+CONFIRM=1 \
+VERSION=0.1.1 \
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+TESTFLIGHT_GROUP="External Testers" \
+./scripts/release-ios.sh testflight
+```
+
+Submit App Store review:
+
+```sh
+CONFIRM=1 \
+VERSION=0.1.1 \
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+./scripts/release-ios.sh appstore
+```
+
+Check release status:
+
+```sh
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> ./scripts/release-ios.sh status
+```
+
+Run the native test suite before release:
+
+```sh
+xcodebuild test \
+  -project LinXApple.xcodeproj \
+  -scheme LinXApple \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
+```
 
 ## Development Notes
 

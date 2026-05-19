@@ -1,0 +1,10 @@
+artifacts/
+reports/
+runs/
+tmp/
+config.json
+*.p8
+*.ipa
+*.xcarchive
+*.xcresult
+*.json.tmp

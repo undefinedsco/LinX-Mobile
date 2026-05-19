@@ -11,6 +11,7 @@ enum LinxDiagnostics {
     static let podNetwork = Logger(subsystem: subsystem, category: "pod.network")
     static let runtime = Logger(subsystem: subsystem, category: "runtime")
     static let auth = Logger(subsystem: subsystem, category: "auth")
+    static let speech = Logger(subsystem: subsystem, category: "speech")
 
     nonisolated static func fingerprint(_ value: String?) -> String {
         guard

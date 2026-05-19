@@ -37,6 +37,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>LinX uses the camera when you choose to capture photos or videos to attach to chat messages.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LinX uses the microphone to transcribe speech into chat text on this device.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>
