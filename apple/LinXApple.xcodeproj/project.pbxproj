@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		023946A77EEACCB261EDBC1D /* SpeechAudioConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C82C4833371311560885C10 /* SpeechAudioConverter.swift */; };
+		0346854624DF0C1E72AC66E0 /* whisper.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5F21D4F2E2099BB5AABC5689 /* whisper.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		0BB12D05E7E342E4AA37D41B /* PodSPARQLTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E161939EF69E2A2E0360EF /* PodSPARQLTypes.swift */; };
 		0EDB999773A3E8B067F34C51 /* PodSPARQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C1D673127294EB264192B1B /* PodSPARQLBuilder.swift */; };
 		102B5221D5F6B3A22CCC50A8 /* LinXAppleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160ADF6DA5CE4EBB7FD45738 /* LinXAppleUITests.swift */; };
@@ -17,9 +18,11 @@
 		24AE1E8FA54E7BB188D123E9 /* ExyteMessageAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1BBB5D9C7C55051A4E4CF5 /* ExyteMessageAdapter.swift */; };
 		2F7355E3DE4AD1D06C66A897 /* AuthAndPodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B171552B3CC9913F90E769B2 /* AuthAndPodTests.swift */; };
 		32205F0C4B4FB77361589212 /* LinXAppleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6414DBD3B7A4329F8AC666 /* LinXAppleApp.swift */; };
+		3C2B81166FD420C6E4ECC25A /* ggml-base.bin in Resources */ = {isa = PBXBuildFile; fileRef = 75EDFD483B699EAE24BED16D /* ggml-base.bin */; };
 		432F17620AD0AB6685ADF115 /* SpeechRecognitionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66040EA720E2283E80D8DF79 /* SpeechRecognitionState.swift */; };
 		58A614B37DBE02969A1F6346 /* LinxRuntimeTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABFBF2E066F5D2CA33B23B91 /* LinxRuntimeTargetResolver.swift */; };
 		592CEE93773B7282B2C01D50 /* ChatLocalCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0B31BF6571646A33C389FC /* ChatLocalCacheStore.swift */; };
+		5D1F218EB8F6944B43B3CFDB /* whisper.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F21D4F2E2099BB5AABC5689 /* whisper.xcframework */; };
 		5D781AA2D354AD8AC8F89C38 /* JWTUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F0564592561E6695E1185C /* JWTUtilities.swift */; };
 		60099EBD8E5EEF55130E51B6 /* LinxSharedContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4CDDBD4A2096E8B2A1E571D /* LinxSharedContract.swift */; };
 		6D25A62B85953B90A844F2BA /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FA4264569D40F354DB2DBD /* KeychainSessionStore.swift */; };
@@ -80,6 +83,20 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		AA0800E49B1691EFED47D608 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				0346854624DF0C1E72AC66E0 /* whisper.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		09742308DB5A6732DA35AF99 /* PodSPARQLClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodSPARQLClient.swift; sourceTree = "<group>"; };
 		0A7A52E9F614C8BC02BDAA36 /* LinXAppleUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LinXAppleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -100,10 +117,12 @@
 		441388A6E714D57ED8A6E0F6 /* WhisperModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperModelStore.swift; sourceTree = "<group>"; };
 		4D0B31BF6571646A33C389FC /* ChatLocalCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocalCacheStore.swift; sourceTree = "<group>"; };
 		59B10F289DDD4660FF8BEE9F /* WhisperCppBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCppBridge.swift; sourceTree = "<group>"; };
+		5F21D4F2E2099BB5AABC5689 /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = whisper.xcframework; path = Vendors/Whisper/whisper.xcframework; sourceTree = "<group>"; };
 		62453068EE5975D9C9E12368 /* PodStoragePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodStoragePaths.swift; sourceTree = "<group>"; };
 		66040EA720E2283E80D8DF79 /* SpeechRecognitionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognitionState.swift; sourceTree = "<group>"; };
 		6D9876092D2D34C13A325B3D /* OIDCDiscoveryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OIDCDiscoveryClient.swift; sourceTree = "<group>"; };
 		737B61D3893CF582784DB6BD /* ChatExperienceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatExperienceModel.swift; sourceTree = "<group>"; };
+		75EDFD483B699EAE24BED16D /* ggml-base.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "ggml-base.bin"; sourceTree = "<group>"; };
 		7BE6F3C448CE1BB4D2D99D0C /* LinxModelCatalogClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxModelCatalogClient.swift; sourceTree = "<group>"; };
 		8630C9B275581B3BC6633C1E /* SpeechRecognitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognitionTests.swift; sourceTree = "<group>"; };
 		89F13ED95C3CD4558299934E /* LinxDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxDiagnostics.swift; sourceTree = "<group>"; };
@@ -152,6 +171,7 @@
 				78343D53554AF5FD582876A7 /* AppAuth in Frameworks */,
 				F3FE6F14D3F1964E87D04474 /* ExyteChat in Frameworks */,
 				AA1AB73955B9EA3864DC52BD /* MarkdownView in Frameworks */,
+				5D1F218EB8F6944B43B3CFDB /* whisper.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -183,6 +203,14 @@
 				160ADF6DA5CE4EBB7FD45738 /* LinXAppleUITests.swift */,
 			);
 			path = LinXAppleUITests;
+			sourceTree = "<group>";
+		};
+		37836C6D3B777430B8222468 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5F21D4F2E2099BB5AABC5689 /* whisper.xcframework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		59E557FD776BD5807C355D80 /* Sources */ = {
@@ -278,6 +306,7 @@
 		C7A5704CEEFCB0F2E98733B1 /* WhisperModels */ = {
 			isa = PBXGroup;
 			children = (
+				75EDFD483B699EAE24BED16D /* ggml-base.bin */,
 				A8F369580EF499FEE8C8F9F3 /* README.md */,
 			);
 			path = WhisperModels;
@@ -316,6 +345,7 @@
 				9523FC312A2342A0C6FE7BC5 /* LinXApple */,
 				C19330B5B039CBA81390D4D6 /* LinXAppleTests */,
 				190406921109C3971BCB27E7 /* LinXAppleUITests */,
+				37836C6D3B777430B8222468 /* Frameworks */,
 				9C5AB3BA281A583C19FEA9F8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -373,6 +403,7 @@
 				206DECA7EBF4B699DA48B920 /* Sources */,
 				32E2DB378FA30963E002FFD3 /* Resources */,
 				FBBD732A9B174F5D3A7DF133 /* Frameworks */,
+				AA0800E49B1691EFED47D608 /* Embed Frameworks */,
 				F8D5450E632CD7EF647DC7F8 /* Copy GiphyUISDK dSYM */,
 			);
 			buildRules = (
@@ -460,6 +491,7 @@
 			files = (
 				DD0DDE0C11902E7FC05B5873 /* Assets.xcassets in Resources */,
 				FF7A5B3952A33026BD2B39B2 /* README.md in Resources */,
+				3C2B81166FD420C6E4ECC25A /* ggml-base.bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -636,6 +668,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = X9RSF4AXVN;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendors/Whisper\"",
+				);
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -659,6 +695,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = X9RSF4AXVN;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendors/Whisper\"",
+				);
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

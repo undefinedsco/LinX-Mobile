@@ -42,6 +42,8 @@ Dependencies are declared in `project.yml`:
 - `AppAuth` `2.0.0`
 - `ExyteChat` `3.1.1`
 - `MarkdownView` `2.6.1`
+- `whisper.cpp` `v1.8.4` XCFramework, installed locally by
+  `scripts/prepare-whisper.sh`
 
 ## Source Modules
 
@@ -169,10 +171,21 @@ history in `cli-default` is not merged or migrated into the app.
 
 ## Setup
 
-Regenerate the Xcode project after editing `project.yml`:
+Prepare local Whisper artifacts before building the app:
 
 ```sh
 cd apple
+scripts/prepare-whisper.sh
+```
+
+This downloads `ggml-base.bin` into `LinXApple/Resources/WhisperModels/` and
+installs the official whisper.cpp XCFramework into `Vendors/Whisper/`. These
+large artifacts are intentionally ignored by git.
+
+Regenerate the Xcode project after preparing artifacts or editing
+`project.yml`:
+
+```sh
 xcodegen generate
 ```
 

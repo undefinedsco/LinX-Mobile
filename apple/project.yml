@@ -55,6 +55,9 @@ targets:
         product: ExyteChat
       - package: MarkdownViewPackage
         product: MarkdownView
+      - framework: Vendors/Whisper/whisper.xcframework
+        embed: true
+        codeSign: true
     scheme:
       testTargets:
         - LinXAppleTests

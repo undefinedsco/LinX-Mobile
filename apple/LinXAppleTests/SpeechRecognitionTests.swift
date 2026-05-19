@@ -32,6 +32,19 @@ final class SpeechRecognitionTests: XCTestCase {
         }
     }
 
+    func testModelURL_whenBundledResourceIsFlattened_returnsTopLevelURL() throws {
+        let bundleURL = makeTemporaryDirectory()
+            .appendingPathComponent("SpeechFixtures.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let modelURL = bundleURL.appendingPathComponent("ggml-base.bin")
+        try Data([0x01]).write(to: modelURL)
+
+        let bundle = try XCTUnwrap(Bundle(url: bundleURL))
+        let store = WhisperModelStore(bundle: bundle, bundleDirectory: "WhisperModels")
+
+        XCTAssertEqual(try store.modelURL(for: .base), modelURL)
+    }
+
     func testConvertToWhisperPCM_outputs16kMonoFloat32() async throws {
         let inputURL = try makeSineWaveFile(sampleRate: 44_100, duration: 0.25)
         let converter = SpeechAudioConverter()
@@ -168,6 +181,22 @@ final class SpeechRecognitionTests: XCTestCase {
             XCTFail("Expected cancelled")
         } catch let error as SpeechRecognitionError {
             XCTAssertEqual(error, .cancelled)
+        }
+    }
+
+    func testTranscribe_whenBridgeFails_preservesSpeechRecognitionError() async throws {
+        let expected = SpeechRecognitionError.modelLoadFailed("runtime unavailable")
+        let service = WhisperTranscriptionService(
+            modelStore: FakeWhisperModelStore(modelURL: makeTemporaryFileURL(extension: "bin")),
+            audioConverter: FakeSpeechAudioConverter(duration: 1),
+            bridge: FakeWhisperBridge(outcome: .failure(expected))
+        )
+
+        do {
+            _ = try await service.transcribe(audioURL: makeTemporaryFileURL(extension: "m4a"))
+            XCTFail("Expected bridge failure")
+        } catch let error as SpeechRecognitionError {
+            XCTAssertEqual(error, expected)
         }
     }
 

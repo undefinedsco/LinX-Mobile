@@ -36,6 +36,9 @@ final class WhisperModelStore: WhisperModelStoring, @unchecked Sendable {
             forResource: size.fileName,
             withExtension: "bin",
             subdirectory: bundleDirectory
+        ) ?? bundle.url(
+            forResource: size.fileName,
+            withExtension: "bin"
         ) else {
             throw SpeechRecognitionError.modelNotFound(size.fileName)
         }
