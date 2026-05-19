@@ -271,11 +271,15 @@ final class ChatExperienceModel: ObservableObject {
     }
 
     func loadMoreMessages() {
+        Task {
+            await loadMoreMessagesPage()
+        }
+    }
+
+    func loadMoreMessagesPage() async {
         guard canLoadMoreMessages else { return }
         loadedMessageLimit += AppConstants.pageSize
-        Task {
-            await loadMessagesForCurrentThread()
-        }
+        await loadMessagesForCurrentThread()
     }
 
     func message(for id: String) -> LinxChatMessage? {

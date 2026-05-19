@@ -716,7 +716,7 @@
 			repositoryURL = "https://github.com/exyte/Chat";
 			requirement = {
 				kind = exactVersion;
-				version = 3.0.2;
+				version = 3.1.1;
 			};
 		};
 		78F15B4893FC52B45BBC8C7E /* XCRemoteSwiftPackageReference "AppAuth-iOS" */ = {
