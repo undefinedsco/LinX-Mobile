@@ -70,7 +70,7 @@
 		0C1D673127294EB264192B1B /* PodSPARQLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodSPARQLBuilder.swift; sourceTree = "<group>"; };
 		160ADF6DA5CE4EBB7FD45738 /* LinXAppleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinXAppleUITests.swift; sourceTree = "<group>"; };
 		17AD65DADA0DA82A8074FD63 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
-		24593156FC938716288F72DA /* LinXApple.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LinXApple.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		24593156FC938716288F72DA /* LinXApple.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LinXApple.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		277B37722CE6C4A8D6AC6E12 /* LinxDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinxDate.swift; sourceTree = "<group>"; };
 		289EC38AAECCF419FF317ACC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		305879D2560EBEF23B4DBB2C /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
@@ -285,6 +285,7 @@
 				206DECA7EBF4B699DA48B920 /* Sources */,
 				32E2DB378FA30963E002FFD3 /* Resources */,
 				FBBD732A9B174F5D3A7DF133 /* Frameworks */,
+				F8D5450E632CD7EF647DC7F8 /* Copy GiphyUISDK dSYM */,
 			);
 			buildRules = (
 			);
@@ -333,6 +334,7 @@
 						TestTargetID = 877CC0EEBB1C24376A7D93B3;
 					};
 					877CC0EEBB1C24376A7D93B3 = {
+						DevelopmentTeam = X9RSF4AXVN;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -373,6 +375,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F8D5450E632CD7EF647DC7F8 /* Copy GiphyUISDK dSYM */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy GiphyUISDK dSYM";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"${PROJECT_DIR}/scripts/copy-giphy-dsym.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		206DECA7EBF4B699DA48B920 /* Sources */ = {
@@ -503,8 +527,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 7;
+				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -523,8 +550,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 7;
+				DEVELOPMENT_TEAM = X9RSF4AXVN;
 				INFOPLIST_FILE = LinXApple/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LinX;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
