@@ -44,14 +44,6 @@ struct ChatScene: View {
                 params.defaultMessageView()
             }
         }
-        .mainHeaderBuilder {
-            LinxChatMainHeader(
-                title: navigationTitle,
-                modelID: viewModel.activeModelID,
-                messageCount: viewModel.messages.count,
-                isCached: viewModel.isUsingCachedFallback
-            )
-        }
         .betweenListAndInputViewBuilder {
             LinxSendingStatusBar(
                 isVisible: viewModel.isSending,
@@ -280,86 +272,6 @@ private struct LinxChatToolbarTitle: View {
             }
         }
         .frame(maxWidth: 220)
-    }
-}
-
-private struct LinxChatMainHeader: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let title: String
-    let modelID: String
-    let messageCount: Int
-    let isCached: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                LinxAgentMark(size: 44)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Text(isCached ? "Cached Pod session" : "Pod session ready")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(LinxChatPalette.secondaryText(for: colorScheme))
-                }
-
-                Spacer(minLength: 10)
-
-                LinxSessionBadge(isCached: isCached)
-            }
-
-            HStack(spacing: 8) {
-                LinxMetadataPill(systemImage: "text.bubble", text: "\(messageCount) messages")
-                    .fixedSize(horizontal: true, vertical: false)
-                LinxMetadataPill(systemImage: "cpu", text: modelID)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(LinxChatPalette.stroke(for: colorScheme), lineWidth: 1)
-        )
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-}
-
-private struct LinxMetadataPill: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let systemImage: String
-    let text: String
-
-    var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption.weight(.medium))
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .foregroundStyle(LinxChatPalette.secondaryText(for: colorScheme))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                Capsule()
-                    .fill(LinxChatPalette.surface(for: colorScheme))
-            )
-    }
-}
-
-private struct LinxSessionBadge: View {
-    let isCached: Bool
-
-    var body: some View {
-        Label(isCached ? "Cache" : "Live", systemImage: isCached ? "externaldrive" : "checkmark.seal.fill")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(isCached ? LinxChatPalette.blue : LinxChatPalette.accent)
-            .labelStyle(.titleAndIcon)
-            .lineLimit(1)
     }
 }
 
