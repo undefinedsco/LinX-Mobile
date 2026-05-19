@@ -173,6 +173,10 @@ final class ChatExperienceModel: ObservableObject {
         await bootstrapIfNeeded()
     }
 
+    func dismissErrorMessage() {
+        errorMessage = nil
+    }
+
     private func runBootstrap(webID: String, startedAt: Date) async {
         do {
             async let preferredModelID = modelCatalogClient.preferredModelID()

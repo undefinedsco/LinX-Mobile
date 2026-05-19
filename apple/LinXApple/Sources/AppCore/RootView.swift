@@ -39,14 +39,13 @@ struct RootView: View {
                         await chatModel.bootstrapIfNeeded()
                     }
                 }
-                .overlay(alignment: .top) {
+                .overlay {
                     if chatModel.isBootstrapping {
                         ProgressView("Syncing your Pod…")
                             .font(.footnote.weight(.medium))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(.regularMaterial, in: Capsule())
-                            .padding(.top, 10)
                     }
                 }
             }

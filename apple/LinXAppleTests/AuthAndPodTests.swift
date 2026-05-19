@@ -869,6 +869,22 @@ final class AuthAndPodTests: XCTestCase {
     }
 
     @MainActor
+    func testDismissErrorMessageClearsVisibleError() async throws {
+        let controller = try await makeAuthenticatedAuthController()
+        let localCache = ChatLocalCacheStore(rootDirectory: try makeTemporaryDirectory())
+        let model = makeChatModel(
+            authController: controller,
+            repository: MockChatRepository(),
+            localCache: localCache
+        )
+        model.errorMessage = "Pod returned no messages for this thread."
+
+        model.dismissErrorMessage()
+
+        XCTAssertNil(model.errorMessage)
+    }
+
+    @MainActor
     func testBootstrapRemoteSuccessOverwritesCachedDataAndCache() async throws {
         let controller = try await makeAuthenticatedAuthController()
         let cacheRoot = try makeTemporaryDirectory()

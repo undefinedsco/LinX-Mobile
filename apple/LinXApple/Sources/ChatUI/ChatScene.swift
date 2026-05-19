@@ -89,6 +89,18 @@ struct ChatScene: View {
                             .padding(.vertical, 6)
                             .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
                         }
+
+                        Button {
+                            viewModel.dismissErrorMessage()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.footnote.weight(.bold))
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .accessibilityLabel("Dismiss error message")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
