@@ -11,6 +11,7 @@ enum SpeechRecognitionError: LocalizedError, Equatable, Sendable {
     case transcriptionFailed(String)
     case cancelled
     case audioTooLong(maxDuration: TimeInterval)
+    case noSpeechDetected
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +35,8 @@ enum SpeechRecognitionError: LocalizedError, Equatable, Sendable {
             return "Speech transcription was cancelled."
         case .audioTooLong(let maxDuration):
             return "Audio is too long. Maximum duration is \(Int(maxDuration)) seconds."
+        case .noSpeechDetected:
+            return "No speech was detected. Please speak clearly and try again."
         }
     }
 }

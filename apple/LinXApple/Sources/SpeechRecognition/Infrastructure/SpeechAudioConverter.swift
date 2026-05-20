@@ -79,6 +79,9 @@ struct SpeechAudioConverter: SpeechAudioConverting {
             try Task.checkCancellation()
             try sourceFile.read(into: inputBuffer)
             let monoSamples = try makeMonoSamples(from: inputBuffer)
+            let metrics = audioLevelMetrics(for: monoSamples)
+            let durationMs = Int((Double(monoSamples.count) / sourceSampleRate) * 1000)
+            LinxDiagnostics.speech.info("audio level sampleCount=\(monoSamples.count, privacy: .public) durationMs=\(durationMs, privacy: .public) rmsDbFS=\(metrics.rmsDbFS, privacy: .public) peakDbFS=\(metrics.peakDbFS, privacy: .public)")
             try Task.checkCancellation()
             let outputSamples = resample(
                 monoSamples,
@@ -116,6 +119,34 @@ struct SpeechAudioConverter: SpeechAudioConverting {
             }
         }
         return monoSamples
+    }
+
+    private static func audioLevelMetrics(for samples: [Float]) -> (rmsDbFS: Double, peakDbFS: Double) {
+        guard samples.isEmpty == false else {
+            return (-160, -160)
+        }
+
+        var sumOfSquares = Double.zero
+        var peak = Double.zero
+
+        for sample in samples {
+            let amplitude = min(1, abs(Double(sample)))
+            sumOfSquares += amplitude * amplitude
+            peak = max(peak, amplitude)
+        }
+
+        let rms = sqrt(sumOfSquares / Double(samples.count))
+        return (
+            rmsDbFS: decibelsFullScale(rms),
+            peakDbFS: decibelsFullScale(peak)
+        )
+    }
+
+    private static func decibelsFullScale(_ amplitude: Double) -> Double {
+        guard amplitude > 0 else {
+            return -160
+        }
+        return max(-160, 20 * log10(amplitude))
     }
 
     private static func resample(

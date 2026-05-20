@@ -79,7 +79,12 @@ final class SpeechRecognitionViewModel: ObservableObject {
 
             let result = try await task.value
             guard self.operationID == operationID else { return }
-            transcribedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmedText.isEmpty == false else {
+                state = .failed(Self.displayMessage(for: SpeechRecognitionError.noSpeechDetected))
+                return
+            }
+            transcribedText = trimmedText
             state = .completed(result)
         } catch {
             guard self.operationID == operationID else { return }

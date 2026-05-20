@@ -37,7 +37,7 @@ struct SpeechTranscriptionOptions: Equatable, Sendable {
     var maxAudioDuration: TimeInterval?
 
     init(
-        language: Language = .auto,
+        language: Language = .chinese,
         modelSize: ModelSize = .base,
         translateToEnglish: Bool = false,
         useTimestamps: Bool = true,

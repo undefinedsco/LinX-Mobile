@@ -71,7 +71,7 @@ struct SpeechInputSheet: View {
     private var transcriptView: some View {
         if case .completed(let result) = viewModel.state {
             ScrollView {
-                Text(result.text.isEmpty ? "No speech was detected." : result.text)
+                Text(result.text)
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)

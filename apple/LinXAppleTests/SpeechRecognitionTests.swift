@@ -45,6 +45,10 @@ final class SpeechRecognitionTests: XCTestCase {
         XCTAssertEqual(try store.modelURL(for: .base), modelURL)
     }
 
+    func testDefaultOptions_useChineseLanguage() {
+        XCTAssertEqual(SpeechTranscriptionOptions().language, .chinese)
+    }
+
     func testConvertToWhisperPCM_outputs16kMonoFloat32() async throws {
         let inputURL = try makeSineWaveFile(sampleRate: 44_100, duration: 0.25)
         let converter = SpeechAudioConverter()
@@ -136,6 +140,21 @@ final class SpeechRecognitionTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .failed(SpeechRecognitionError.transcriptionFailed("boom").localizedDescription))
     }
 
+    @MainActor
+    func testStopRecording_whenTranscriptionReturnsEmptyText_setsNoSpeechFailedState() async throws {
+        let audioURL = try makeSineWaveFile(sampleRate: 16_000, duration: 0.1)
+        let viewModel = SpeechRecognitionViewModel(
+            recorder: FakeSpeechAudioRecorder(outputURL: audioURL),
+            transcriptionProvider: FakeTranscriptionProvider(outcome: .success(Self.sampleResult(text: "   ")))
+        )
+
+        await viewModel.startRecording()
+        await viewModel.stopRecording()
+
+        XCTAssertEqual(viewModel.state, .failed(SpeechRecognitionError.noSpeechDetected.localizedDescription))
+        XCTAssertEqual(viewModel.transcribedText, "")
+    }
+
     func testTranscribe_whenAudioTooLong_throwsAudioTooLong() async throws {
         let service = WhisperTranscriptionService(
             modelStore: FakeWhisperModelStore(modelURL: makeTemporaryFileURL(extension: "bin")),
@@ -151,6 +170,21 @@ final class SpeechRecognitionTests: XCTestCase {
             XCTFail("Expected audioTooLong")
         } catch let error as SpeechRecognitionError {
             XCTAssertEqual(error, .audioTooLong(maxDuration: 300))
+        }
+    }
+
+    func testTranscribe_whenBridgeReturnsEmptyText_throwsNoSpeechDetected() async throws {
+        let service = WhisperTranscriptionService(
+            modelStore: FakeWhisperModelStore(modelURL: makeTemporaryFileURL(extension: "bin")),
+            audioConverter: FakeSpeechAudioConverter(duration: 1),
+            bridge: FakeWhisperBridge(outcome: .success(Self.sampleResult(text: "   ")))
+        )
+
+        do {
+            _ = try await service.transcribe(audioURL: makeTemporaryFileURL(extension: "m4a"))
+            XCTFail("Expected noSpeechDetected")
+        } catch let error as SpeechRecognitionError {
+            XCTAssertEqual(error, .noSpeechDetected)
         }
     }
 

@@ -54,6 +54,9 @@ final class WhisperTranscriptionService: SpeechTranscriptionProviding, @unchecke
             )
             let transcriptionDurationMs = Int(Date().timeIntervalSince(inferenceStartedAt) * 1000)
             let totalDurationMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            guard result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw SpeechRecognitionError.noSpeechDetected
+            }
             LinxDiagnostics.speech.info("transcription succeeded audioDurationMs=\(Int(audioDuration * 1000), privacy: .public) conversionDurationMs=\(conversionDurationMs, privacy: .public) transcriptionDurationMs=\(transcriptionDurationMs, privacy: .public) totalDurationMs=\(totalDurationMs, privacy: .public) model=\(modelName, privacy: .public)")
             return result
         } catch is CancellationError {
