@@ -225,6 +225,11 @@ The App Store Connect release entry point is `scripts/release-ios.sh`. It wraps
 repo-local asc workflow files under `.asc/` and keeps generated archives, IPAs,
 reports, runs, and credentials out of source control.
 
+The repository does not currently include a commit-triggered CI workflow for
+publishing. After committing code, run the release script locally, or add a CI
+workflow separately with App Store Connect credentials supplied through CI
+secrets.
+
 Install asc:
 
 ```sh
@@ -246,46 +251,80 @@ Use `ASC_PROFILE=LinXApple` when the keychain profile is not the default. In CI,
 set `ASC_BYPASS_KEYCHAIN=1` and provide credentials through CI secrets or an
 untracked `.asc/config.json`.
 
-Run the preflight checks:
+Prepare generated files and local Whisper artifacts:
 
 ```sh
-./scripts/release-ios.sh doctor
+./scripts/release-ios.sh prepare
+```
+
+Build the app locally:
+
+```sh
+./scripts/release-ios.sh build
+```
+
+Run the native test suite:
+
+```sh
+./scripts/release-ios.sh test
+```
+
+The build command defaults to `BUILD_DESTINATION='generic/platform=iOS'`. The
+test command defaults to `DESTINATION='platform=iOS Simulator,name=iPhone 16'`.
+Both can be overridden through environment variables.
+
+Run App Store Connect validation only:
+
+```sh
 VERSION=0.1.1 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> ./scripts/release-ios.sh validate
 ```
 
-Dry-run TestFlight and App Store workflows before mutating App Store Connect:
+Run the full preflight before release. This checks asc auth, prepares local
+artifacts, runs tests, and validates App Store Connect readiness:
 
 ```sh
-DRY_RUN=1 \
+VERSION=0.1.1 \
+ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+./scripts/release-ios.sh preflight
+```
+
+Use `SKIP_TESTS=1` only when you explicitly need to bypass local tests.
+
+Dry-run TestFlight and App Store workflows before uploading or submitting:
+
+```sh
 VERSION=0.1.1 \
 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
 TESTFLIGHT_GROUP="External Testers" \
-./scripts/release-ios.sh testflight
+./scripts/release-ios.sh dry-run-testflight
 
-DRY_RUN=1 \
 VERSION=0.1.1 \
 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
-./scripts/release-ios.sh appstore
+./scripts/release-ios.sh dry-run-appstore
 ```
 
-Upload and distribute TestFlight:
+Run preflight, then upload and distribute TestFlight:
 
 ```sh
 CONFIRM=1 \
 VERSION=0.1.1 \
 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
 TESTFLIGHT_GROUP="External Testers" \
-./scripts/release-ios.sh testflight
+./scripts/release-ios.sh release-testflight
 ```
 
-Submit App Store review:
+Run preflight, then submit App Store review:
 
 ```sh
 CONFIRM=1 \
 VERSION=0.1.1 \
 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> \
-./scripts/release-ios.sh appstore
+./scripts/release-ios.sh release-appstore
 ```
+
+The lower-level `testflight` and `appstore` commands are still available when
+you intentionally want to skip the local preflight and run only the asc workflow.
+They still require `CONFIRM=1` unless `DRY_RUN=1` is set.
 
 Check release status:
 
@@ -293,13 +332,16 @@ Check release status:
 ASC_APP_ID=<APP_STORE_CONNECT_APP_ID> ./scripts/release-ios.sh status
 ```
 
-Run the native test suite before release:
+Inspect the latest local build or test log:
 
 ```sh
-xcodebuild test \
-  -project LinXApple.xcodeproj \
-  -scheme LinXApple \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+./scripts/release-ios.sh logs
+```
+
+Clean generated release artifacts, reports, and logs:
+
+```sh
+CONFIRM=1 ./scripts/release-ios.sh clean
 ```
 
 ## Development Notes
