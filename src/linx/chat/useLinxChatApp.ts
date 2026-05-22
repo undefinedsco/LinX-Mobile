@@ -19,8 +19,13 @@ import type {
 } from '../types';
 import {
   clearRecentThreadId,
+  clearUserChatCache,
+  loadLaunchSnapshot,
+  loadMessagesSnapshot,
   loadRecentThreadId,
+  saveMessagesSnapshot,
   saveRecentThreadId,
+  saveThreadsSnapshot,
 } from './cache';
 
 export interface LinxChatAppState {
@@ -32,6 +37,8 @@ export interface LinxChatAppState {
   messages: LinxChatMessage[];
   isSending: boolean;
   isLoadingMessages: boolean;
+  isUsingCachedFallback: boolean;
+  canLoadMoreMessages: boolean;
   errorMessage?: string;
   login(): Promise<void>;
   logout(): Promise<void>;
@@ -39,16 +46,29 @@ export interface LinxChatAppState {
   newChat(): Promise<void>;
   selectThread(thread: LinxThreadSummary): Promise<void>;
   sendMessage(text: string): Promise<void>;
+  loadMoreMessages(): Promise<void>;
   cancelSend(): void;
   clearError(): void;
 }
+
+type MessageLoadResult = 'loaded' | 'preserved-cache';
+
+const EMPTY_THREADS_CACHE_MESSAGE =
+  'Pod returned no chat history. Showing cached chat data.';
+const EMPTY_MESSAGES_CACHE_MESSAGE =
+  'Pod returned no messages for this thread. Showing cached messages.';
 
 function toRemoteMessages(messages: LinxChatMessage[]): RemoteChatMessage[] {
   return messages
     .filter(message =>
       ['system', 'user', 'assistant'].includes(message.role),
     )
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .sort((left, right) => {
+      const dateComparison = left.createdAt.localeCompare(right.createdAt);
+      return dateComparison === 0
+        ? left.id.localeCompare(right.id)
+        : dateComparison;
+    })
     .map(message => ({
       role: message.role,
       content: message.content,
@@ -59,13 +79,50 @@ function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function sortThreads(threads: LinxThreadSummary[]): LinxThreadSummary[] {
+  return [...threads].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
+function sortMessages(messages: LinxChatMessage[]): LinxChatMessage[] {
+  return [...messages].sort((left, right) => {
+    const dateComparison = left.createdAt.localeCompare(right.createdAt);
+    return dateComparison === 0 ? left.id.localeCompare(right.id) : dateComparison;
+  });
+}
+
+function mergeMessages(
+  loaded: LinxChatMessage[],
+  current: LinxChatMessage[],
+  threadId: string,
+): LinxChatMessage[] {
+  const seenIds = new Set(loaded.map(message => message.id));
+  const merged = [...loaded];
+
+  for (const message of current) {
+    if (message.threadId === threadId && !seenIds.has(message.id)) {
+      seenIds.add(message.id);
+      merged.push(message);
+    }
+  }
+
+  return sortMessages(merged);
+}
+
 export function useLinxChatApp(): LinxChatAppState {
   const authController = useMemo(() => new LinxAuthController(), []);
   const repository = useMemo(
     () => new PodChatRepository(new PodClient(authController)),
     [authController],
   );
+
   const sendAbortController = useRef<AbortController | null>(null);
+  const messageLoadId = useRef(0);
+  const loadedMessageLimit = useRef(LINX_CONTRACT.pageSize);
+  const messagesRef = useRef<LinxChatMessage[]>([]);
+  const selectedThreadRef = useRef<LinxThreadSummary | null>(null);
+  const threadsRef = useRef<LinxThreadSummary[]>([]);
 
   const [phase, setPhase] = useState<LinxLaunchPhase>('restoring');
   const [session, setSession] = useState<LinxAuthSession | null>(null);
@@ -73,22 +130,61 @@ export function useLinxChatApp(): LinxChatAppState {
     LINX_CONTRACT.defaultModelId,
   );
   const [threads, setThreads] = useState<LinxThreadSummary[]>([]);
-  const [selectedThread, setSelectedThread] = useState<LinxThreadSummary | null>(null);
+  const [selectedThread, setSelectedThread] = useState<LinxThreadSummary | null>(
+    null,
+  );
   const [messages, setMessages] = useState<LinxChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [hasLoadedAllMessages, setHasLoadedAllMessages] = useState(true);
+  const [isUsingCachedFallback, setIsUsingCachedFallback] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  const setThreadsState = useCallback((next: LinxThreadSummary[]) => {
+    const sorted = sortThreads(next);
+    threadsRef.current = sorted;
+    setThreads(sorted);
+  }, []);
+
+  const setSelectedThreadState = useCallback((next: LinxThreadSummary | null) => {
+    selectedThreadRef.current = next;
+    setSelectedThread(next);
+  }, []);
+
+  const setMessagesState = useCallback((next: LinxChatMessage[]) => {
+    const sorted = sortMessages(next);
+    messagesRef.current = sorted;
+    setMessages(sorted);
+  }, []);
+
+  const invalidateMessageLoads = useCallback(() => {
+    messageLoadId.current += 1;
+  }, []);
+
+  const resetMessagePaging = useCallback((hasLoadedAll = true) => {
+    loadedMessageLimit.current = LINX_CONTRACT.pageSize;
+    setHasLoadedAllMessages(hasLoadedAll);
+  }, []);
 
   const resetChatState = useCallback(() => {
     sendAbortController.current?.abort();
     sendAbortController.current = null;
-    setThreads([]);
-    setSelectedThread(null);
-    setMessages([]);
+    invalidateMessageLoads();
+    setThreadsState([]);
+    setSelectedThreadState(null);
+    setMessagesState([]);
     setIsSending(false);
     setIsLoadingMessages(false);
+    setIsUsingCachedFallback(false);
+    resetMessagePaging(true);
     setActiveModelId(LINX_CONTRACT.defaultModelId);
-  }, []);
+  }, [
+    invalidateMessageLoads,
+    resetMessagePaging,
+    setMessagesState,
+    setSelectedThreadState,
+    setThreadsState,
+  ]);
 
   const handleAuthExpired = useCallback(async () => {
     await authController.expireSession();
@@ -98,69 +194,204 @@ export function useLinxChatApp(): LinxChatAppState {
     setPhase('unauthenticated');
   }, [authController, resetChatState]);
 
-  const loadMessagesForThread = useCallback(
-    async (webId: string, thread: LinxThreadSummary): Promise<void> => {
-      setIsLoadingMessages(true);
+  const applyLaunchSnapshot = useCallback(
+    async (webId: string): Promise<boolean> => {
+      const snapshot = await loadLaunchSnapshot(webId, LINX_CONTRACT.pageSize);
+      if (!snapshot) {
+        return false;
+      }
+
+      setThreadsState(snapshot.threads);
+      setSelectedThreadState(snapshot.selectedThread);
+      setMessagesState(snapshot.messages);
+      resetMessagePaging(
+        !snapshot.selectedThread ||
+          snapshot.messages.length < LINX_CONTRACT.pageSize,
+      );
+      return true;
+    },
+    [
+      resetMessagePaging,
+      setMessagesState,
+      setSelectedThreadState,
+      setThreadsState,
+    ],
+  );
+
+  const hasVisibleChatData = useCallback(
+    () =>
+      threadsRef.current.length > 0 ||
+      Boolean(selectedThreadRef.current) ||
+      messagesRef.current.length > 0,
+    [],
+  );
+
+  const resolvePreferredModelId = useCallback(
+    async (nextSession: LinxAuthSession): Promise<string> => {
       try {
-        const loaded = await repository.loadMessages(
-          webId,
-          thread.id,
-          LINX_CONTRACT.pageSize,
-        );
-        setMessages(loaded);
-        await saveRecentThreadId(webId, thread.id);
-      } finally {
-        setIsLoadingMessages(false);
+        const models = await listRemoteModels({
+          issuerUrl: nextSession.issuerUrl,
+          tokenProvider: authController,
+        });
+        return pickPreferredModelId(models);
+      } catch {
+        return LINX_CONTRACT.defaultModelId;
       }
     },
-    [repository],
+    [authController],
+  );
+
+  const loadMessagesForThread = useCallback(
+    async (
+      webId: string,
+      thread: LinxThreadSummary,
+      limit: number = loadedMessageLimit.current,
+    ): Promise<MessageLoadResult> => {
+      const requestId = messageLoadId.current + 1;
+      messageLoadId.current = requestId;
+      setIsLoadingMessages(true);
+
+      try {
+        const loaded = await repository.loadMessages(webId, thread.id, limit);
+        if (
+          messageLoadId.current !== requestId ||
+          selectedThreadRef.current?.id !== thread.id
+        ) {
+          return 'loaded';
+        }
+
+        if (
+          loaded.length === 0 &&
+          messagesRef.current.some(message => message.threadId === thread.id)
+        ) {
+          setHasLoadedAllMessages(messagesRef.current.length < limit);
+          setIsUsingCachedFallback(true);
+          setErrorMessage(EMPTY_MESSAGES_CACHE_MESSAGE);
+          return 'preserved-cache';
+        }
+
+        const nextMessages = mergeMessages(loaded, messagesRef.current, thread.id);
+        setMessagesState(nextMessages);
+        setHasLoadedAllMessages(loaded.length < limit);
+        setIsUsingCachedFallback(false);
+        setErrorMessage(undefined);
+        await saveMessagesSnapshot(webId, thread.id, nextMessages);
+        await saveRecentThreadId(webId, thread.id);
+        return 'loaded';
+      } catch (error) {
+        if (isAuthExpiredError(error)) {
+          throw error;
+        }
+
+        if (
+          messageLoadId.current !== requestId ||
+          selectedThreadRef.current?.id !== thread.id
+        ) {
+          return 'loaded';
+        }
+
+        const cachedMessages = await loadMessagesSnapshot(webId, thread.id, limit);
+        if (cachedMessages.length > 0) {
+          setMessagesState(cachedMessages);
+          setHasLoadedAllMessages(cachedMessages.length < limit);
+          setIsUsingCachedFallback(true);
+          setErrorMessage(resolveErrorMessage(error));
+          return 'preserved-cache';
+        }
+
+        setErrorMessage(resolveErrorMessage(error));
+        throw error;
+      } finally {
+        if (messageLoadId.current === requestId) {
+          setIsLoadingMessages(false);
+        }
+      }
+    },
+    [repository, setMessagesState],
   );
 
   const bootstrap = useCallback(
     async (nextSession: LinxAuthSession): Promise<void> => {
       setPhase('bootstrapping');
       setErrorMessage(undefined);
+      setIsUsingCachedFallback(false);
       setSession(nextSession);
 
+      const didApplyCache = await applyLaunchSnapshot(nextSession.webId);
+
       try {
-        let modelId: string = LINX_CONTRACT.defaultModelId;
-        try {
-          const models = await listRemoteModels({
-            issuerUrl: nextSession.issuerUrl,
-            tokenProvider: authController,
-          });
-          modelId = pickPreferredModelId(models);
-        } catch {
-          modelId = LINX_CONTRACT.defaultModelId;
-        }
+        const [modelId] = await Promise.all([
+          resolvePreferredModelId(nextSession),
+          repository.bootstrap(nextSession.webId, LINX_CONTRACT.defaultModelId),
+        ]);
         setActiveModelId(modelId);
 
-        await repository.bootstrap(nextSession.webId, modelId);
         const loadedThreads = await repository.listThreads(nextSession.webId);
-        setThreads(loadedThreads);
+        const sortedThreads = sortThreads(loadedThreads);
+
+        if (sortedThreads.length === 0 && (didApplyCache || hasVisibleChatData())) {
+          setIsUsingCachedFallback(true);
+          setErrorMessage(EMPTY_THREADS_CACHE_MESSAGE);
+          setPhase('ready');
+          return;
+        }
+
+        setThreadsState(sortedThreads);
+        await saveThreadsSnapshot(nextSession.webId, sortedThreads);
 
         const recentThreadId = await loadRecentThreadId(nextSession.webId);
+        const currentThreadId = selectedThreadRef.current?.id;
         const threadToSelect =
-          loadedThreads.find(thread => thread.id === recentThreadId) ??
-          loadedThreads[0] ??
+          sortedThreads.find(thread => thread.id === currentThreadId) ??
+          sortedThreads.find(thread => thread.id === recentThreadId) ??
+          sortedThreads[0] ??
           null;
-        setSelectedThread(threadToSelect);
+
+        setSelectedThreadState(threadToSelect);
+        resetMessagePaging(!threadToSelect);
+
         if (threadToSelect) {
-          await loadMessagesForThread(nextSession.webId, threadToSelect);
+          const loadResult = await loadMessagesForThread(
+            nextSession.webId,
+            threadToSelect,
+            LINX_CONTRACT.pageSize,
+          );
+          setIsUsingCachedFallback(loadResult === 'preserved-cache');
         } else {
-          setMessages([]);
+          setMessagesState([]);
+          setHasLoadedAllMessages(true);
         }
+
         setPhase('ready');
       } catch (error) {
         if (isAuthExpiredError(error)) {
           await handleAuthExpired();
           return;
         }
+
+        if (didApplyCache || hasVisibleChatData()) {
+          setIsUsingCachedFallback(true);
+          setErrorMessage(resolveErrorMessage(error));
+          setPhase('ready');
+          return;
+        }
+
         setErrorMessage(resolveErrorMessage(error));
         setPhase('error');
       }
     },
-    [authController, handleAuthExpired, loadMessagesForThread, repository],
+    [
+      applyLaunchSnapshot,
+      handleAuthExpired,
+      hasVisibleChatData,
+      loadMessagesForThread,
+      repository,
+      resetMessagePaging,
+      resolvePreferredModelId,
+      setMessagesState,
+      setSelectedThreadState,
+      setThreadsState,
+    ],
   );
 
   useEffect(() => {
@@ -194,12 +425,14 @@ export function useLinxChatApp(): LinxChatAppState {
     return () => {
       cancelled = true;
       sendAbortController.current?.abort();
+      invalidateMessageLoads();
     };
-  }, [authController, bootstrap]);
+  }, [authController, bootstrap, invalidateMessageLoads]);
 
   const login = useCallback(async () => {
     setPhase('authenticating');
     setErrorMessage(undefined);
+    setIsUsingCachedFallback(false);
     try {
       const nextSession = await authController.login();
       await bootstrap(nextSession);
@@ -214,6 +447,7 @@ export function useLinxChatApp(): LinxChatAppState {
     await authController.logout();
     if (webId) {
       await clearRecentThreadId(webId);
+      await clearUserChatCache(webId);
     }
     setSession(null);
     resetChatState();
@@ -234,61 +468,88 @@ export function useLinxChatApp(): LinxChatAppState {
     if (!session) {
       return;
     }
+    sendAbortController.current?.abort();
+    invalidateMessageLoads();
+    setSelectedThreadState(null);
+    setMessagesState([]);
+    resetMessagePaging(true);
+    setIsLoadingMessages(false);
+    setIsSending(false);
+    setIsUsingCachedFallback(false);
     setErrorMessage(undefined);
-    try {
-      const thread = await repository.createThread(session.webId);
-      setThreads(current => [thread, ...current]);
-      setSelectedThread(thread);
-      setMessages([]);
-      await saveRecentThreadId(session.webId, thread.id);
-    } catch (error) {
-      if (isAuthExpiredError(error)) {
-        await handleAuthExpired();
-        return;
-      }
-      setErrorMessage(resolveErrorMessage(error));
-    }
-  }, [handleAuthExpired, repository, session]);
+    await clearRecentThreadId(session.webId);
+  }, [
+    invalidateMessageLoads,
+    resetMessagePaging,
+    session,
+    setMessagesState,
+    setSelectedThreadState,
+  ]);
 
   const selectThread = useCallback(
     async (thread: LinxThreadSummary) => {
       if (!session) {
         return;
       }
-      setSelectedThread(thread);
+
+      invalidateMessageLoads();
+      setSelectedThreadState(thread);
+      setMessagesState([]);
+      resetMessagePaging(false);
       setErrorMessage(undefined);
+      setIsUsingCachedFallback(false);
+
+      const cachedMessages = await loadMessagesSnapshot(
+        session.webId,
+        thread.id,
+        LINX_CONTRACT.pageSize,
+      );
+      if (selectedThreadRef.current?.id === thread.id && cachedMessages.length > 0) {
+        setMessagesState(cachedMessages);
+        setHasLoadedAllMessages(cachedMessages.length < LINX_CONTRACT.pageSize);
+      }
+
       try {
-        await loadMessagesForThread(session.webId, thread);
+        await loadMessagesForThread(session.webId, thread, LINX_CONTRACT.pageSize);
       } catch (error) {
         if (isAuthExpiredError(error)) {
           await handleAuthExpired();
-          return;
         }
-        setErrorMessage(resolveErrorMessage(error));
       }
     },
-    [handleAuthExpired, loadMessagesForThread, session],
+    [
+      handleAuthExpired,
+      invalidateMessageLoads,
+      loadMessagesForThread,
+      resetMessagePaging,
+      session,
+      setMessagesState,
+      setSelectedThreadState,
+    ],
   );
 
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!session || !trimmed || isSending) {
+      if (!session || !trimmed || isSending || phase === 'bootstrapping') {
         return;
       }
 
       setIsSending(true);
       setErrorMessage(undefined);
+      setIsUsingCachedFallback(false);
       const abortController = new AbortController();
       sendAbortController.current = abortController;
 
       try {
-        let thread = selectedThread;
+        let thread = selectedThreadRef.current;
         if (!thread) {
           const createdThread = await repository.createThread(session.webId);
           thread = createdThread;
-          setThreads(current => [createdThread, ...current]);
-          setSelectedThread(createdThread);
+          setThreadsState([createdThread, ...threadsRef.current]);
+          setSelectedThreadState(createdThread);
+          resetMessagePaging(true);
+          await saveThreadsSnapshot(session.webId, threadsRef.current);
           await saveRecentThreadId(session.webId, createdThread.id);
         }
 
@@ -301,7 +562,12 @@ export function useLinxChatApp(): LinxChatAppState {
           thread.id,
           trimmed,
         );
-        setMessages(current => [...current, userMessage]);
+
+        if (selectedThreadRef.current?.id === thread.id) {
+          const nextMessages = sortMessages([...messagesRef.current, userMessage]);
+          setMessagesState(nextMessages);
+          await saveMessagesSnapshot(session.webId, thread.id, nextMessages);
+        }
 
         const completion = await createRemoteCompletion({
           issuerUrl: session.issuerUrl,
@@ -319,11 +585,30 @@ export function useLinxChatApp(): LinxChatAppState {
           thread.id,
           completion.content,
         );
-        setMessages(current => [...current, assistantMessage]);
+
+        if (selectedThreadRef.current?.id === thread.id) {
+          const nextMessages = sortMessages([
+            ...messagesRef.current,
+            assistantMessage,
+          ]);
+          setMessagesState(nextMessages);
+          await saveMessagesSnapshot(session.webId, thread.id, nextMessages);
+        }
 
         const refreshedThreads = await repository.listThreads(session.webId);
-        setThreads(refreshedThreads);
+        if (refreshedThreads.length > 0) {
+          setThreadsState(refreshedThreads);
+          await saveThreadsSnapshot(session.webId, threadsRef.current);
+          const refreshedSelected = threadsRef.current.find(
+            candidate => candidate.id === thread?.id,
+          );
+          if (refreshedSelected) {
+            setSelectedThreadState(refreshedSelected);
+          }
+        }
+        setHasLoadedAllMessages(messagesRef.current.length < loadedMessageLimit.current);
         await saveRecentThreadId(session.webId, thread.id);
+        setPhase('ready');
       } catch (error) {
         if (error instanceof LinxAppAbortError) {
           setErrorMessage(error.message);
@@ -346,11 +631,40 @@ export function useLinxChatApp(): LinxChatAppState {
       authController,
       handleAuthExpired,
       isSending,
+      phase,
       repository,
-      selectedThread,
+      resetMessagePaging,
       session,
+      setMessagesState,
+      setSelectedThreadState,
+      setThreadsState,
     ],
   );
+
+  const loadMoreMessages = useCallback(async () => {
+    if (!session || !selectedThreadRef.current || isLoadingMessages || hasLoadedAllMessages) {
+      return;
+    }
+
+    loadedMessageLimit.current += LINX_CONTRACT.pageSize;
+    try {
+      await loadMessagesForThread(
+        session.webId,
+        selectedThreadRef.current,
+        loadedMessageLimit.current,
+      );
+    } catch (error) {
+      if (isAuthExpiredError(error)) {
+        await handleAuthExpired();
+      }
+    }
+  }, [
+    handleAuthExpired,
+    hasLoadedAllMessages,
+    isLoadingMessages,
+    loadMessagesForThread,
+    session,
+  ]);
 
   const cancelSend = useCallback(() => {
     sendAbortController.current?.abort();
@@ -369,6 +683,9 @@ export function useLinxChatApp(): LinxChatAppState {
     messages,
     isSending,
     isLoadingMessages,
+    isUsingCachedFallback,
+    canLoadMoreMessages:
+      Boolean(selectedThread) && !hasLoadedAllMessages && !isLoadingMessages,
     errorMessage,
     login,
     logout,
@@ -376,6 +693,7 @@ export function useLinxChatApp(): LinxChatAppState {
     newChat,
     selectThread,
     sendMessage,
+    loadMoreMessages,
     cancelSend,
     clearError,
   };

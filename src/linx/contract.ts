@@ -13,7 +13,7 @@ export const LINX_CONTRACT = {
   defaultAgentName: 'LinX Mobile Assistant',
   defaultThreadTitle: 'Mobile Session',
   defaultThreadWorkspace: 'co.undefineds.linx.mobile://workspace/default',
-  pageSize: 40,
+  pageSize: 20,
   podRequestTimeoutMs: 20_000,
   runtimeRequestTimeoutMs: 10 * 60 * 1000,
   tokenRefreshLeewayMs: 60_000,
@@ -34,4 +34,6 @@ export const LINX_KEYCHAIN_SERVICE = 'co.undefineds.linx.mobile.session';
 
 export const LINX_STORAGE_KEYS = {
   recentThreadId: '@linx-mobile/recent-thread-id',
+  threadsSnapshot: '@linx-mobile/threads-snapshot',
+  messagesSnapshot: '@linx-mobile/messages-snapshot',
 } as const;

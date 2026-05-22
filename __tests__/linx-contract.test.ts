@@ -1,4 +1,5 @@
 import { extractWebIdFromIdToken } from '../src/linx/auth/jwt';
+import { LINX_CONTRACT } from '../src/linx/contract';
 import {
   resolvePodBaseUrl,
   chatIndexResource,
@@ -72,6 +73,10 @@ test('extractWebIdFromIdToken prefers webid and falls back to URL sub', () => {
 });
 
 test('resolves Pod and runtime URLs using CLI-compatible rules', () => {
+  expect(LINX_CONTRACT.pageSize).toBe(20);
+  expect(LINX_CONTRACT.defaultChatId).toBe('mobile-default');
+  expect(LINX_CONTRACT.defaultAgentId).toBe('linx-mobile-assistant');
+
   expect(resolvePodBaseUrl('https://alice.example/profile/card#me')).toBe(
     'https://alice.example/',
   );

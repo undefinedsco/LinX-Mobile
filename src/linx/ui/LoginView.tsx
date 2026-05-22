@@ -7,6 +7,7 @@ import {
   useColorScheme,
   View,
 } from 'react-native';
+import { LinxPalette, linxColors } from './LinxPalette';
 
 interface LoginViewProps {
   isBusy: boolean;
@@ -16,13 +17,32 @@ interface LoginViewProps {
 
 export function LoginView({ isBusy, errorMessage, onLogin }: LoginViewProps) {
   const isDark = useColorScheme() === 'dark';
+  const colors = linxColors(isDark);
+
   return (
-    <View style={[styles.container, isDark && styles.containerDark]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.mark}>
+        <View style={styles.markCircle}>
+          <Text style={styles.markText}>L</Text>
+        </View>
+      </View>
       <View style={styles.content}>
-        <Text style={[styles.title, isDark && styles.titleDark]}>LinX</Text>
-        <Text style={[styles.subtitle, isDark && styles.subtitleDark]}>
-          Sign in to continue your mobile chats.
+        <Text style={[styles.title, { color: colors.text }]}>LinX</Text>
+        <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
+          OpenAI-compatible LinX cloud runtime with Solid Pod chat memory.
         </Text>
+        <View
+          style={[
+            styles.featurePill,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}>
+          <Text style={[styles.featureText, { color: colors.secondaryText }]}>
+            Secure OIDC login
+          </Text>
+          <Text style={[styles.featureText, { color: colors.secondaryText }]}>
+            Pod-backed history
+          </Text>
+        </View>
         {errorMessage ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {errorMessage}
@@ -50,42 +70,63 @@ export function LoginView({ isBusy, errorMessage, onLogin }: LoginViewProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f6f4ee',
     justifyContent: 'center',
     padding: 24,
   },
-  containerDark: {
-    backgroundColor: '#101418',
+  mark: {
+    alignItems: 'flex-start',
+    marginBottom: 22,
+  },
+  markCircle: {
+    alignItems: 'center',
+    backgroundColor: LinxPalette.accent,
+    borderRadius: 23,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  markText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '900',
   },
   content: {
     gap: 18,
   },
   title: {
-    color: '#17211c',
-    fontSize: 52,
-    fontWeight: '800',
+    fontSize: 54,
+    fontWeight: '900',
     letterSpacing: 0,
-  },
-  titleDark: {
-    color: '#f7faf8',
+    lineHeight: 60,
   },
   subtitle: {
-    color: '#59645f',
     fontSize: 18,
+    fontWeight: '600',
     lineHeight: 25,
+    maxWidth: 360,
   },
-  subtitleDark: {
-    color: '#bdc7c2',
+  featurePill: {
+    alignSelf: 'flex-start',
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  featureText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   error: {
-    color: '#b42318',
+    color: LinxPalette.warning,
     fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#0d6b5f',
-    borderRadius: 8,
+    backgroundColor: LinxPalette.accent,
+    borderRadius: 14,
     flexDirection: 'row',
     gap: 10,
     justifyContent: 'center',
@@ -93,7 +134,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   buttonPressed: {
-    opacity: 0.88,
+    backgroundColor: LinxPalette.accentPressed,
   },
   buttonDisabled: {
     opacity: 0.72,
@@ -101,6 +142,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });

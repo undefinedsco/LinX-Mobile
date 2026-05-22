@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,17 +14,11 @@ import {
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import type { LinxChatAppState } from '../chat/useLinxChatApp';
-import type { LinxChatMessage, LinxThreadSummary } from '../types';
+import type { LinxChatMessage } from '../types';
+import { LinxPalette, linxColors } from './LinxPalette';
+import { ThreadListSheet } from './ThreadListSheet';
 
 type ChatScreenProps = LinxChatAppState;
-
-function formatThreadDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleDateString();
-}
 
 function ignorePromise(promise: Promise<unknown> | void): void {
   Promise.resolve(promise).catch(() => undefined);
@@ -38,6 +31,7 @@ function MessageBubble({
   message: LinxChatMessage;
   isDark: boolean;
 }) {
+  const colors = linxColors(isDark);
   const isUser = message.role === 'user';
   return (
     <View
@@ -45,11 +39,21 @@ function MessageBubble({
         styles.messageRow,
         isUser ? styles.messageRowUser : styles.messageRowAssistant,
       ]}>
+      {!isUser ? (
+        <View style={[styles.avatar, { backgroundColor: LinxPalette.accent }]}>
+          <Text style={styles.avatarText}>L</Text>
+        </View>
+      ) : null}
       <View
         style={[
           styles.messageBubble,
-          isUser ? styles.userBubble : styles.assistantBubble,
-          isDark && !isUser && styles.assistantBubbleDark,
+          isUser
+            ? { backgroundColor: LinxPalette.accent }
+            : {
+                backgroundColor: colors.elevatedSurface,
+                borderColor: colors.border,
+                borderWidth: StyleSheet.hairlineWidth,
+              },
         ]}>
         {isUser ? (
           <Text style={styles.userMessageText}>{message.content}</Text>
@@ -63,48 +67,68 @@ function MessageBubble({
           </Markdown>
         )}
       </View>
+      {isUser ? (
+        <View style={[styles.avatar, { backgroundColor: LinxPalette.blue }]}>
+          <Text style={styles.avatarText}>ME</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function ThreadRow({
-  thread,
-  selected,
-  onPress,
+function ErrorBanner({
+  message,
+  canRetry,
+  onRetry,
+  onDismiss,
 }: {
-  thread: LinxThreadSummary;
-  selected: boolean;
-  onPress: () => void;
+  message: string;
+  canRetry: boolean;
+  onRetry: () => void;
+  onDismiss: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.threadRow, selected && styles.threadRowSelected]}>
-      <View style={styles.threadText}>
-        <Text numberOfLines={1} style={styles.threadTitle}>
-          {thread.title}
-        </Text>
-        <Text numberOfLines={1} style={styles.threadMeta}>
-          {formatThreadDate(thread.updatedAt)}
-        </Text>
-      </View>
-      {selected ? <Text style={styles.threadSelectedMark}>Selected</Text> : null}
-    </Pressable>
+    <View style={styles.errorBar}>
+      <Text accessibilityRole="alert" style={styles.errorText}>
+        {message}
+      </Text>
+      {canRetry ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onRetry}
+          style={styles.errorButton}>
+          <Text style={styles.errorButtonText}>Retry</Text>
+        </Pressable>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        onPress={onDismiss}
+        style={styles.errorButton}
+        testID="dismiss-error-button">
+        <Text style={styles.errorButtonText}>Dismiss</Text>
+      </Pressable>
+    </View>
   );
 }
 
 export function ChatScreen(props: ChatScreenProps) {
   const isDark = useColorScheme() === 'dark';
+  const colors = linxColors(isDark);
   const [draft, setDraft] = useState('');
   const [showThreads, setShowThreads] = useState(false);
   const listRef = useRef<FlatList<LinxChatMessage>>(null);
+  const lastMessageId = props.messages[props.messages.length - 1]?.id;
+  const lastScrolledMessageId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (!lastMessageId || lastScrolledMessageId.current === lastMessageId) {
+      return;
+    }
+    lastScrolledMessageId.current = lastMessageId;
     requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: true });
     });
-  }, [props.messages.length]);
+  }, [lastMessageId]);
 
   const send = () => {
     const next = draft.trim();
@@ -115,72 +139,89 @@ export function ChatScreen(props: ChatScreenProps) {
     ignorePromise(props.sendMessage(next));
   };
 
+  const subtitle = props.isSending
+    ? 'Responding'
+    : props.isUsingCachedFallback
+      ? 'Cached Pod'
+      : props.activeModelId;
+
   const renderMessage = ({ item }: ListRenderItemInfo<LinxChatMessage>) => (
-    <MessageBubble message={item} isDark={isDark} />
+    <MessageBubble isDark={isDark} message={item} />
   );
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, isDark && styles.containerDark]}>
-      <View style={[styles.header, isDark && styles.headerDark]}>
+      style={[styles.container, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: colors.backgroundAlt, borderBottomColor: colors.border },
+        ]}>
         <Pressable
+          accessibilityLabel="Show chats"
           accessibilityRole="button"
           onPress={() => setShowThreads(true)}
           style={styles.headerButton}>
-          <Text style={[styles.headerButtonText, isDark && styles.textDark]}>
-            Threads
+          <Text style={[styles.headerButtonText, { color: LinxPalette.accent }]}>
+            Chats
           </Text>
         </Pressable>
         <View style={styles.headerTitleWrap}>
-          <Text
-            numberOfLines={1}
-            style={[styles.headerTitle, isDark && styles.textDark]}>
+          <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}>
             {props.selectedThread?.title ?? 'LinX'}
           </Text>
-          <Text numberOfLines={1} style={styles.modelText}>
-            {props.activeModelId}
-          </Text>
+          <View style={styles.subtitleRow}>
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: props.isSending
+                    ? LinxPalette.blue
+                    : LinxPalette.accent,
+                },
+              ]}
+            />
+            <Text numberOfLines={1} style={[styles.modelText, { color: colors.secondaryText }]}>
+              {subtitle}
+            </Text>
+          </View>
         </View>
         <Pressable
+          accessibilityLabel="New chat"
           accessibilityRole="button"
           onPress={() => {
             ignorePromise(props.newChat());
           }}
           style={styles.headerButton}>
-          <Text style={[styles.headerButtonText, isDark && styles.textDark]}>
+          <Text style={[styles.headerButtonText, { color: LinxPalette.accent }]}>
             New
           </Text>
         </Pressable>
       </View>
 
       {props.errorMessage ? (
-        <View style={styles.errorBar}>
-          <Text accessibilityRole="alert" style={styles.errorText}>
-            {props.errorMessage}
-          </Text>
-          {props.phase === 'error' ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                ignorePromise(props.retry());
-              }}
-              style={styles.errorButton}>
-              <Text style={styles.errorButtonText}>Retry</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={props.clearError}
-            style={styles.errorButton}>
-            <Text style={styles.errorButtonText}>Dismiss</Text>
-          </Pressable>
-        </View>
+        <ErrorBanner
+          canRetry={props.phase === 'error' || props.isUsingCachedFallback}
+          message={props.errorMessage}
+          onDismiss={props.clearError}
+          onRetry={() => {
+            ignorePromise(props.retry());
+          }}
+        />
       ) : null}
 
       {props.phase === 'bootstrapping' || props.isLoadingMessages ? (
-        <View style={styles.loadingOverlay} pointerEvents="none">
-          <ActivityIndicator />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.loadingOverlay,
+            { backgroundColor: colors.backgroundAlt, borderBottomColor: colors.border },
+          ]}>
+          <ActivityIndicator color={LinxPalette.accent} />
+          <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
+            Syncing your Pod
+          </Text>
         </View>
       ) : null}
 
@@ -192,164 +233,171 @@ export function ChatScreen(props: ChatScreenProps) {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={[styles.emptyTitle, isDark && styles.textDark]}>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
               Start a chat
             </Text>
+            <Text style={[styles.emptySubtitle, { color: colors.secondaryText }]}>
+              Messages are stored in your Solid Pod.
+            </Text>
           </View>
+        }
+        ListHeaderComponent={
+          props.canLoadMoreMessages ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={props.isLoadingMessages}
+              onPress={() => {
+                ignorePromise(props.loadMoreMessages());
+              }}
+              style={[
+                styles.loadMoreButton,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <Text style={[styles.loadMoreText, { color: LinxPalette.accent }]}>
+                Load earlier messages
+              </Text>
+            </Pressable>
+          ) : null
         }
         renderItem={renderMessage}
       />
 
-      <View style={[styles.composer, isDark && styles.composerDark]}>
-        <TextInput
-          multiline
-          editable={!props.isSending}
-          onChangeText={setDraft}
-          placeholder="Message LinX"
-          placeholderTextColor={isDark ? '#7d8782' : '#7a857f'}
-          style={[styles.input, isDark && styles.inputDark]}
-          testID="message-input"
-          value={draft}
-        />
-        {props.isSending ? (
+      {props.isSending ? (
+        <View style={[styles.sendingBar, { backgroundColor: colors.surface }]}>
+          <ActivityIndicator color={LinxPalette.accent} size="small" />
+          <Text style={[styles.sendingText, { color: colors.text }]}>
+            LinX is responding
+          </Text>
           <Pressable
             accessibilityRole="button"
             onPress={props.cancelSend}
-            style={[styles.sendButton, styles.cancelButton]}>
-            <Text style={styles.sendButtonText}>Cancel</Text>
+            style={styles.inlineCancelButton}>
+            <Text style={styles.inlineCancelText}>Stop</Text>
           </Pressable>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            disabled={!draft.trim()}
-            onPress={send}
-            style={[styles.sendButton, !draft.trim() && styles.sendButtonDisabled]}
-            testID="send-button">
-            <Text style={styles.sendButtonText}>Send</Text>
-          </Pressable>
-        )}
+        </View>
+      ) : null}
+
+      <View
+        style={[
+          styles.composer,
+          { backgroundColor: colors.backgroundAlt, borderTopColor: colors.border },
+        ]}>
+        <TextInput
+          multiline
+          editable={!props.isSending && props.phase !== 'bootstrapping'}
+          onChangeText={setDraft}
+          placeholder="Message LinX"
+          placeholderTextColor={colors.tertiaryText}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.input,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
+          testID="message-input"
+          value={draft}
+        />
+        <Pressable
+          accessibilityRole="button"
+          disabled={!draft.trim() || props.isSending || props.phase === 'bootstrapping'}
+          onPress={send}
+          style={({ pressed }) => [
+            styles.sendButton,
+            pressed && styles.sendButtonPressed,
+            (!draft.trim() || props.isSending || props.phase === 'bootstrapping') &&
+              styles.sendButtonDisabled,
+          ]}
+          testID="send-button">
+          <Text style={styles.sendButtonText}>Send</Text>
+        </Pressable>
       </View>
 
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setShowThreads(false)}
-        visible={showThreads}>
-        <View style={[styles.modal, isDark && styles.containerDark]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, isDark && styles.textDark]}>
-              Threads
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setShowThreads(false)}
-              style={styles.headerButton}>
-              <Text style={[styles.headerButtonText, isDark && styles.textDark]}>
-                Done
-              </Text>
-            </Pressable>
-          </View>
-          <FlatList
-            data={props.threads}
-            keyExtractor={item => item.id}
-            ListEmptyComponent={
-              <Text style={[styles.emptyListText, isDark && styles.textDark]}>
-                No threads yet.
-              </Text>
-            }
-            renderItem={({ item }) => (
-              <ThreadRow
-                thread={item}
-                selected={item.id === props.selectedThread?.id}
-                onPress={() => {
-                  setShowThreads(false);
-                  ignorePromise(props.selectThread(item));
-                }}
-              />
-            )}
-          />
-          <View style={styles.modalActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setShowThreads(false);
-                ignorePromise(props.newChat());
-              }}
-              style={styles.modalPrimaryButton}>
-              <Text style={styles.sendButtonText}>New Chat</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setShowThreads(false);
-                ignorePromise(props.logout());
-              }}
-              style={styles.modalSecondaryButton}>
-              <Text style={styles.modalSecondaryText}>Log Out</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <ThreadListSheet
+        isDark={isDark}
+        onClose={() => setShowThreads(false)}
+        onLogout={() => {
+          setShowThreads(false);
+          ignorePromise(props.logout());
+        }}
+        onNewChat={() => {
+          setShowThreads(false);
+          ignorePromise(props.newChat());
+        }}
+        onSelectThread={thread => {
+          setShowThreads(false);
+          ignorePromise(props.selectThread(thread));
+        }}
+        selectedThreadId={props.selectedThread?.id}
+        threads={props.threads}
+        visible={showThreads}
+      />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#f8f7f3',
     flex: 1,
-  },
-  containerDark: {
-    backgroundColor: '#101418',
   },
   header: {
     alignItems: 'center',
-    backgroundColor: '#fbfaf7',
-    borderBottomColor: '#dfddd5',
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  headerDark: {
-    backgroundColor: '#151b20',
-    borderBottomColor: '#283138',
-  },
   headerButton: {
     borderRadius: 8,
-    paddingHorizontal: 10,
+    minWidth: 54,
+    paddingHorizontal: 8,
     paddingVertical: 8,
   },
   headerButtonText: {
-    color: '#23332d',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   headerTitleWrap: {
+    alignItems: 'center',
     flex: 1,
     minWidth: 0,
   },
   headerTitle: {
-    color: '#17211c',
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0,
+    lineHeight: 22,
     textAlign: 'center',
+  },
+  subtitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    maxWidth: 220,
+    minWidth: 0,
+  },
+  statusDot: {
+    borderRadius: 3,
+    height: 6,
+    width: 6,
   },
   modelText: {
-    color: '#6a746f',
+    flexShrink: 1,
     fontSize: 12,
-    marginTop: 2,
+    fontWeight: '700',
+    marginTop: 1,
     textAlign: 'center',
-  },
-  textDark: {
-    color: '#eef4f1',
   },
   errorBar: {
     alignItems: 'center',
-    backgroundColor: '#b42318',
+    backgroundColor: LinxPalette.warning,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 8,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -357,10 +405,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     flex: 1,
     fontSize: 13,
+    fontWeight: '600',
     lineHeight: 18,
   },
   errorButton: {
-    borderColor: 'rgba(255,255,255,0.55)',
+    borderColor: 'rgba(255,255,255,0.58)',
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 8,
@@ -369,31 +418,59 @@ const styles = StyleSheet.create({
   errorButtonText: {
     color: '#fff',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   loadingOverlay: {
     alignItems: 'center',
-    height: 36,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 8,
     justifyContent: 'center',
+    minHeight: 38,
+  },
+  loadingText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   messageList: {
     flexGrow: 1,
     gap: 12,
-    padding: 14,
+    padding: 12,
+  },
+  loadMoreButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  loadMoreText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
   emptyState: {
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
-    minHeight: 260,
+    minHeight: 300,
+    padding: 24,
   },
   emptyTitle: {
-    color: '#5c6861',
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   messageRow: {
+    alignItems: 'flex-end',
     flexDirection: 'row',
+    gap: 8,
   },
   messageRowUser: {
     justifyContent: 'flex-end',
@@ -401,23 +478,23 @@ const styles = StyleSheet.create({
   messageRowAssistant: {
     justifyContent: 'flex-start',
   },
+  avatar: {
+    alignItems: 'center',
+    borderRadius: 17,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
   messageBubble: {
-    borderRadius: 8,
-    maxWidth: '86%',
+    borderRadius: 16,
+    maxWidth: '78%',
     paddingHorizontal: 12,
     paddingVertical: 10,
-  },
-  userBubble: {
-    backgroundColor: '#0d6b5f',
-  },
-  assistantBubble: {
-    backgroundColor: '#fff',
-    borderColor: '#e4e1d9',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  assistantBubbleDark: {
-    backgroundColor: '#1b2329',
-    borderColor: '#2f3940',
   },
   userMessageText: {
     color: '#fff',
@@ -425,12 +502,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   markdownBody: {
-    color: '#17211c',
+    color: LinxPalette.light.text,
     fontSize: 16,
     lineHeight: 22,
   },
   markdownBodyDark: {
-    color: '#eef4f1',
+    color: LinxPalette.dark.text,
     fontSize: 16,
     lineHeight: 22,
   },
@@ -438,134 +515,63 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     marginTop: 0,
   },
+  sendingBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  sendingText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  inlineCancelButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  inlineCancelText: {
+    color: LinxPalette.warning,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   composer: {
     alignItems: 'flex-end',
-    backgroundColor: '#fbfaf7',
-    borderTopColor: '#dfddd5',
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 10,
     padding: 12,
   },
-  composerDark: {
-    backgroundColor: '#151b20',
-    borderTopColor: '#283138',
-  },
   input: {
-    backgroundColor: '#fff',
-    borderColor: '#d4d1c9',
-    borderRadius: 8,
+    borderRadius: 14,
     borderWidth: 1,
-    color: '#17211c',
     flex: 1,
     fontSize: 16,
+    lineHeight: 22,
     maxHeight: 132,
-    minHeight: 44,
+    minHeight: 46,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  inputDark: {
-    backgroundColor: '#101418',
-    borderColor: '#354047',
-    color: '#eef4f1',
-  },
   sendButton: {
     alignItems: 'center',
-    backgroundColor: '#0d6b5f',
-    borderRadius: 8,
+    backgroundColor: LinxPalette.accent,
+    borderRadius: 14,
     justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 72,
+    minHeight: 46,
+    minWidth: 68,
     paddingHorizontal: 14,
+  },
+  sendButtonPressed: {
+    backgroundColor: LinxPalette.accentPressed,
   },
   sendButtonDisabled: {
     opacity: 0.42,
   },
-  cancelButton: {
-    backgroundColor: '#9c2f24',
-  },
   sendButtonText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '800',
-  },
-  modal: {
-    backgroundColor: '#f8f7f3',
-    flex: 1,
-    paddingTop: 44,
-  },
-  modalHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  modalTitle: {
-    color: '#17211c',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 0,
-  },
-  threadRow: {
-    alignItems: 'center',
-    borderBottomColor: '#e2dfd6',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  threadRowSelected: {
-    backgroundColor: '#e8f2ef',
-  },
-  threadText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  threadTitle: {
-    color: '#17211c',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  threadMeta: {
-    color: '#68736d',
-    fontSize: 12,
-    marginTop: 3,
-  },
-  threadSelectedMark: {
-    color: '#0d6b5f',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  emptyListText: {
-    color: '#5c6861',
-    padding: 18,
-  },
-  modalActions: {
-    borderTopColor: '#e2dfd6',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 10,
-    padding: 16,
-  },
-  modalPrimaryButton: {
-    alignItems: 'center',
-    backgroundColor: '#0d6b5f',
-    borderRadius: 8,
-    minHeight: 48,
-    justifyContent: 'center',
-  },
-  modalSecondaryButton: {
-    alignItems: 'center',
-    borderColor: '#cfcac0',
-    borderRadius: 8,
-    borderWidth: 1,
-    minHeight: 48,
-    justifyContent: 'center',
-  },
-  modalSecondaryText: {
-    color: '#8f2b22',
-    fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '900',
   },
 });

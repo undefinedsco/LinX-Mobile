@@ -42,12 +42,15 @@ function makeAppState(
     messages: [],
     isSending: false,
     isLoadingMessages: false,
+    isUsingCachedFallback: false,
+    canLoadMoreMessages: false,
     login: jest.fn().mockResolvedValue(undefined),
     logout: jest.fn().mockResolvedValue(undefined),
     retry: jest.fn().mockResolvedValue(undefined),
     newChat: jest.fn().mockResolvedValue(undefined),
     selectThread: jest.fn().mockResolvedValue(undefined),
     sendMessage: jest.fn().mockResolvedValue(undefined),
+    loadMoreMessages: jest.fn().mockResolvedValue(undefined),
     cancelSend: jest.fn(),
     clearError: jest.fn(),
     ...overrides,
@@ -133,6 +136,77 @@ test('chat composer sends entered text', async () => {
   });
 
   expect(sendMessage).toHaveBeenCalledWith('hello');
+  await ReactTestRenderer.act(async () => {
+    renderer!.unmount();
+  });
+});
+
+test('new chat action clears the current selection through app state', async () => {
+  const newChat = jest.fn().mockResolvedValue(undefined);
+  mockedUseLinxChatApp.mockReturnValue(
+    makeAppState({
+      phase: 'ready',
+      newChat,
+      session: {
+        issuerUrl: 'https://id.undefineds.co/',
+        clientId: 'client',
+        webId: 'https://alice.example/profile/card#me',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        accessTokenExpirationDate: new Date(Date.now() + 60_000).toISOString(),
+      },
+      selectedThread: {
+        id: 'thread-1',
+        title: 'Saved Thread',
+        createdAt: '1970-01-01T00:00:00.000Z',
+        updatedAt: '1970-01-01T00:00:00.000Z',
+      },
+    }),
+  );
+
+  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ accessibilityLabel: 'New chat' }).props.onPress();
+  });
+
+  expect(newChat).toHaveBeenCalledTimes(1);
+  await ReactTestRenderer.act(async () => {
+    renderer!.unmount();
+  });
+});
+
+test('error banner can be dismissed from chat screen', async () => {
+  const clearError = jest.fn();
+  mockedUseLinxChatApp.mockReturnValue(
+    makeAppState({
+      phase: 'ready',
+      clearError,
+      errorMessage: 'Cached Pod data is visible.',
+      session: {
+        issuerUrl: 'https://id.undefineds.co/',
+        clientId: 'client',
+        webId: 'https://alice.example/profile/card#me',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        accessTokenExpirationDate: new Date(Date.now() + 60_000).toISOString(),
+      },
+    }),
+  );
+
+  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'dismiss-error-button' }).props.onPress();
+  });
+
+  expect(clearError).toHaveBeenCalledTimes(1);
   await ReactTestRenderer.act(async () => {
     renderer!.unmount();
   });
