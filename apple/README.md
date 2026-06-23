@@ -42,8 +42,6 @@ Dependencies are declared in `project.yml`:
 - `AppAuth` `2.0.0`
 - `ExyteChat` `3.1.1`
 - `MarkdownView` `2.6.1`
-- `whisper.cpp` `v1.8.4` XCFramework, installed locally by
-  `scripts/prepare-whisper.sh`
 
 ## Source Modules
 
@@ -83,26 +81,10 @@ Important files:
 
 - `ChatExperienceModel.swift`
 - `ChatScene.swift`
-- `SpeechInputSheet.swift`
-- `SpeechRecognitionViewModel.swift`
 - `LoginView.swift`
 - `ThreadListView.swift`
 - `AssistantMarkdownBubble.swift`
 - `ExyteMessageAdapter.swift`
-
-### SpeechRecognition
-
-Local speech-to-text domain, audio recording, audio conversion, model lookup,
-and the whisper.cpp bridge boundary.
-
-Important files:
-
-- `SpeechTranscriptionProviding.swift`
-- `SpeechAudioRecorder.swift`
-- `SpeechAudioConverter.swift`
-- `WhisperModelStore.swift`
-- `WhisperTranscriptionService.swift`
-- `WhisperCppBridge.swift`
 
 ### PodData
 
@@ -171,19 +153,7 @@ history in `cli-default` is not merged or migrated into the app.
 
 ## Setup
 
-Prepare local Whisper artifacts before building the app:
-
-```sh
-cd apple
-scripts/prepare-whisper.sh
-```
-
-This downloads `ggml-base.bin` into `LinXApple/Resources/WhisperModels/` and
-installs the official whisper.cpp XCFramework into `Vendors/Whisper/`. These
-large artifacts are intentionally ignored by git.
-
-Regenerate the Xcode project after preparing artifacts or editing
-`project.yml`:
+Regenerate the Xcode project after editing `project.yml`:
 
 ```sh
 xcodegen generate
@@ -216,8 +186,6 @@ Existing tests cover:
 - SPARQL literal escaping
 - PKCE authorization request construction
 - launch-to-login UI behavior
-- speech model lookup, audio conversion, service orchestration, and speech view
-  model state transitions
 
 ## Release Workflow
 
@@ -251,7 +219,7 @@ Use `ASC_PROFILE=LinXApple` when the keychain profile is not the default. In CI,
 set `ASC_BYPASS_KEYCHAIN=1` and provide credentials through CI secrets or an
 untracked `.asc/config.json`.
 
-Prepare generated files and local Whisper artifacts:
+Prepare generated files:
 
 ```sh
 ./scripts/release-ios.sh prepare

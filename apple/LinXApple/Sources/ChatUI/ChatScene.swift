@@ -7,7 +7,6 @@ struct ChatScene: View {
     @ObservedObject var viewModel: ChatExperienceModel
     let onLogout: () -> Void
     @State private var draftText = ""
-    @State private var isShowingSpeechInput = false
 
     private var navigationTitle: String {
         viewModel.selectedThread?.title ?? "LinX"
@@ -104,13 +103,6 @@ struct ChatScene: View {
                     .accessibilityLabel("Cancel response")
                 }
 
-                Button(action: showSpeechInput) {
-                    Image(systemName: "mic.fill")
-                        .font(.body.weight(.semibold))
-                }
-                .disabled(viewModel.isSending || viewModel.isBootstrapping)
-                .accessibilityLabel("Voice input")
-
                 Button(action: newChat) {
                     Image(systemName: "square.and.pencil")
                         .font(.body.weight(.semibold))
@@ -142,13 +134,6 @@ struct ChatScene: View {
                 onLogout: onLogout
             )
         }
-        .sheet(isPresented: $isShowingSpeechInput) {
-            SpeechInputSheet { transcript in
-                applyTranscript(transcript)
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
         .background {
             LinxChatPalette.background(for: colorScheme)
                 .ignoresSafeArea()
@@ -166,21 +151,6 @@ struct ChatScene: View {
     private func newChat() {
         draftText = ""
         viewModel.newChat()
-    }
-
-    private func showSpeechInput() {
-        isShowingSpeechInput = true
-    }
-
-    private func applyTranscript(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false else { return }
-
-        if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            draftText = trimmed
-        } else {
-            draftText += "\n" + trimmed
-        }
     }
 
     private func retryBootstrap() {

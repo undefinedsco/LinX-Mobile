@@ -12,7 +12,7 @@ Usage: ./scripts/release-ios.sh <command>
 
 Commands:
   doctor              Check asc, xcodebuild, plutil, and asc authentication
-  prepare             Prepare generated project files and local Whisper artifacts
+  prepare             Prepare generated project files
   build               Build the LinXApple app locally
   test                Run the native app test suite
   validate            Validate workflow syntax and App Store Connect release readiness
@@ -143,36 +143,11 @@ ensure_project_generated() {
   fi
 }
 
-whisper_artifacts_ready() {
-  [ -s LinXApple/Resources/WhisperModels/ggml-base.bin ] && \
-    [ -f Vendors/Whisper/whisper.xcframework/Info.plist ] && \
-    [ -f Vendors/Whisper/whisper.xcframework/ios-arm64/whisper.framework/whisper ] && \
-    [ -f Vendors/Whisper/whisper.xcframework/ios-arm64_x86_64-simulator/whisper.framework/whisper ]
-}
-
-ensure_whisper_artifacts() {
-  if whisper_artifacts_ready; then
-    log "Whisper artifacts are ready."
-    return 0
-  fi
-
-  [ "${SKIP_WHISPER_PREPARE:-0}" != "1" ] || error "Whisper artifacts are missing and SKIP_WHISPER_PREPARE=1 was set"
-
-  require_tool bash
-  require_tool curl
-  require_tool shasum
-  require_tool unzip
-
-  log "Preparing Whisper artifacts..."
-  bash scripts/prepare-whisper.sh
-}
-
 run_prepare() {
   ensure_dir "$ARTIFACTS_DIR"
   ensure_dir "$REPORTS_DIR"
   ensure_dir "$RUNS_DIR"
   ensure_project_generated
-  ensure_whisper_artifacts
 }
 
 resolve_packages() {
