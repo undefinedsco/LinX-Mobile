@@ -1,0 +1,139 @@
+name: Android Build and Test
+
+on:
+  push:
+    paths:
+      - "App.tsx"
+      - "index.js"
+      - "src/**"
+      - "__tests__/**"
+      - "android/**"
+      - "package.json"
+      - "package-lock.json"
+      - "jest.config.js"
+      - "babel.config.js"
+      - "metro.config.js"
+      - "tsconfig.json"
+      - ".github/workflows/android-build-test.yml"
+      - ".github/workflows/android-pgyer.yml"
+  pull_request:
+    paths:
+      - "App.tsx"
+      - "index.js"
+      - "src/**"
+      - "__tests__/**"
+      - "android/**"
+      - "package.json"
+      - "package-lock.json"
+      - "jest.config.js"
+      - "babel.config.js"
+      - "metro.config.js"
+      - "tsconfig.json"
+      - ".github/workflows/android-build-test.yml"
+      - ".github/workflows/android-pgyer.yml"
+
+concurrency:
+  group: android-build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and Test LinXMobile Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Resolve Android version
+        run: |
+          set -euo pipefail
+          version_name="$(node -p "require('./package.json').version")"
+          if [ -z "$version_name" ]; then
+            echo "error: package.json version is empty" >&2
+            exit 1
+          fi
+          echo "ANDROID_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Run Jest tests
+        run: npm test -- --runInBand
+
+      - name: Run Android build and unit tests
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/debug.keystore
+          ANDROID_KEYSTORE_PASSWORD: android
+          ANDROID_KEY_ALIAS: androiddebugkey
+          ANDROID_KEY_PASSWORD: android
+          ANDROID_KEYSTORE_TYPE: jks
+        run: |
+          set -euo pipefail
+          cd android
+          chmod +x ./gradlew
+          ./gradlew \
+            :app:testDebugUnitTest \
+            :app:assembleDebug \
+            :app:assembleRelease \
+            --no-daemon \
+            --stacktrace
+
+      - name: Upload APK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxmobile-android-build-test-apks
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Android test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxmobile-android-test-reports
+          path: |
+            android/app/build/reports/tests/**
+            android/app/build/test-results/**
+            android/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 14

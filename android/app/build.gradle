@@ -72,6 +72,45 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def getEnvOrProperty = { String name ->
+    def value = providers.environmentVariable(name).orNull
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = findProperty(name)
+    }
+    return value == null ? null : value.toString()
+}
+
+def parsePositiveInt = { String rawValue, String name ->
+    def value = rawValue?.trim()
+    if (value == null || !(value ==~ /\d+/)) {
+        throw new GradleException("${name} must be a positive integer")
+    }
+    def intValue = value.toInteger()
+    if (intValue <= 0) {
+        throw new GradleException("${name} must be greater than zero")
+    }
+    return intValue
+}
+
+def androidVersionCodeValue = parsePositiveInt(getEnvOrProperty("ANDROID_VERSION_CODE") ?: "1", "ANDROID_VERSION_CODE")
+def androidVersionNameValue = getEnvOrProperty("ANDROID_VERSION_NAME") ?: "1.0"
+
+def releaseKeystorePath = getEnvOrProperty("ANDROID_KEYSTORE_PATH")
+def releaseKeystorePassword = getEnvOrProperty("ANDROID_KEYSTORE_PASSWORD")
+def releaseKeyAlias = getEnvOrProperty("ANDROID_KEY_ALIAS")
+def releaseKeyPassword = getEnvOrProperty("ANDROID_KEY_PASSWORD")
+def releaseKeystoreType = getEnvOrProperty("ANDROID_KEYSTORE_TYPE")
+def hasReleaseSigning = [
+        releaseKeystorePath,
+        releaseKeystorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword
+].every { it != null && !it.toString().trim().isEmpty() }
+
+if (hasReleaseSigning && !file(releaseKeystorePath).exists()) {
+    throw new GradleException("ANDROID_KEYSTORE_PATH does not exist: ${releaseKeystorePath}")
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -82,8 +121,8 @@ android {
         applicationId "com.linxmobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode androidVersionCodeValue
+        versionName androidVersionNameValue
         manifestPlaceholders = [
             appAuthRedirectScheme: "co.undefineds.linx.mobile"
         ]
@@ -95,15 +134,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                if (releaseKeystoreType != null && !releaseKeystoreType.trim().isEmpty()) {
+                    storeType releaseKeystoreType
+                }
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
