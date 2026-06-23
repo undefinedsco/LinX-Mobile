@@ -136,4 +136,5 @@ jobs:
             apple/.asc/artifacts/*.xcarchive
             apple/.asc/reports/*.xcresult
             apple/.asc/runs/*.log
+            apple/.asc/runs/*.json
           if-no-files-found: ignore

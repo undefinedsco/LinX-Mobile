@@ -348,6 +348,9 @@ ARTIFACTS_DIR="${ARTIFACTS_DIR:-.asc/artifacts}"
 REPORTS_DIR="${REPORTS_DIR:-.asc/reports}"
 RUNS_DIR="${RUNS_DIR:-.asc/runs}"
 RUN_ID="${RUN_ID:-$(run_id)}"
+ASC_TIMEOUT="${ASC_TIMEOUT:-120s}"
+ASC_UPLOAD_TIMEOUT="${ASC_UPLOAD_TIMEOUT:-30m}"
+export ASC_TIMEOUT ASC_UPLOAD_TIMEOUT
 
 COMMAND="${1:-}"
 if [ -z "$COMMAND" ]; then
