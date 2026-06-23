@@ -107,11 +107,12 @@ TestFlight workflow：
 触发：
 
 - `workflow_run`：`Apple Build and Test` 在 `main` 成功后自动发布。
+- `push.tags`：任意 tag push 后自动发布 tag 指向的代码。
 - `workflow_dispatch`：手动触发，可选输入 `version`。
 
 执行：
 
-1. checkout 通过 build/test 的 commit；手动触发时 checkout 当前 ref。
+1. checkout 通过 build/test 的 commit；tag 或手动触发时 checkout 当前 ref。
 2. 安装 `xcodegen` 与 `asc`。
 3. 从 `ASC_PRIVATE_KEY_P8_BASE64` 写入临时 `.p8` 文件。
 4. 生成 repo-local `apple/.asc/config.json`，供 `asc` 使用。
@@ -191,6 +192,7 @@ base64 -i AuthKey_XXXXXX.p8 | pbcopy
 
 - PR 或 push 修改 `apple/**`：运行 `Apple Build and Test`。
 - `main` 分支 `Apple Build and Test` 成功：运行 `Apple TestFlight`。
+- push 任意 tag：运行 `Apple TestFlight`，发布 tag 指向的代码。
 - 手动发布：在 GitHub Actions 页面运行 `Apple TestFlight`，可选输入 `version`；留空时读取 `apple/project.yml` 的 `MARKETING_VERSION`。
 
 ---
@@ -212,3 +214,4 @@ base64 -i AuthKey_XXXXXX.p8 | pbcopy
 - TestFlight workflow 不在 PR 上运行，避免发布 secrets 暴露给 PR 环境。
 - `ASC_PRIVATE_KEY_P8_BASE64` 只能放在 GitHub Secrets；生成的 `.asc/config.json`、`.asc/tmp/`、IPA、archive、xcresult 已由 `apple/.asc/.gitignore` 忽略。
 - `workflow_run` checkout 使用 `github.event.workflow_run.head_sha`，确保发布的是已经通过 build/test 的同一份代码。
+- tag push checkout 使用当前 tag ref；该入口不依赖 `Apple Build and Test` 的 `workflow_run` 结果。

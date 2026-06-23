@@ -1,6 +1,9 @@
 name: Apple TestFlight
 
 on:
+  push:
+    tags:
+      - "*"
   workflow_run:
     workflows:
       - Apple Build and Test
@@ -26,7 +29,8 @@ jobs:
     timeout-minutes: 90
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     env:
       ASC_APP_ID: ${{ vars.LINX_APPLE_ASC_APP_ID }}
@@ -46,8 +50,8 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Checkout manual ref
-        if: github.event_name == 'workflow_dispatch'
+      - name: Checkout current ref
+        if: github.event_name != 'workflow_run'
         uses: actions/checkout@v4
 
       - name: Validate release environment

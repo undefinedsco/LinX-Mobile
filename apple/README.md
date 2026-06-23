@@ -198,7 +198,7 @@ GitHub Actions provide two macOS 26 workflows for CI and TestFlight publishing:
 - `Apple Build and Test`: runs XcodeGen, builds, and tests LinXApple when
   `apple/**` or the build/test workflow changes on push or pull request.
 - `Apple TestFlight`: runs after `Apple Build and Test` succeeds on `main`, or
-  when started manually from the GitHub Actions page.
+  when any tag is pushed, or when started manually from the GitHub Actions page.
 
 Both workflows use GitHub's `macos-26` hosted runner.
 
@@ -236,6 +236,16 @@ Manual TestFlight publish:
 3. Run the workflow.
 4. Optionally enter `version`; leave it empty to use `MARKETING_VERSION` from
    `apple/project.yml`.
+
+Tag-based TestFlight publish:
+
+```sh
+git tag <tag-name>
+git push origin <tag-name>
+```
+
+The tag workflow checks out the tagged ref and uses `MARKETING_VERSION` from
+`apple/project.yml`.
 
 ### Local Release Tools
 
