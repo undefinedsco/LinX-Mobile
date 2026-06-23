@@ -2,6 +2,11 @@ name: Apple Build and Test
 
 on:
   push:
+    branches:
+      - "**"
+    tags:
+      - "*"
+      - "!android-*"
     paths:
       - "apple/**"
       - ".github/workflows/apple-build-test.yml"
