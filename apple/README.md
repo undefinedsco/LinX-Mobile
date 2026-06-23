@@ -193,10 +193,49 @@ The App Store Connect release entry point is `scripts/release-ios.sh`. It wraps
 repo-local asc workflow files under `.asc/` and keeps generated archives, IPAs,
 reports, runs, and credentials out of source control.
 
-The repository does not currently include a commit-triggered CI workflow for
-publishing. After committing code, run the release script locally, or add a CI
-workflow separately with App Store Connect credentials supplied through CI
-secrets.
+GitHub Actions provide two macOS workflows for CI and TestFlight publishing:
+
+- `Apple Build and Test`: runs XcodeGen, builds, and tests LinXApple when
+  `apple/**` or the build/test workflow changes on push or pull request.
+- `Apple TestFlight`: runs after `Apple Build and Test` succeeds on `main`, or
+  when started manually from the GitHub Actions page.
+
+### GitHub Actions Setup
+
+Configure these repository variables:
+
+| Variable | Description |
+|---|---|
+| `LINX_APPLE_ASC_APP_ID` | App Store Connect numeric app ID |
+| `LINX_APPLE_TESTFLIGHT_GROUP` | TestFlight group name |
+
+Configure these repository secrets:
+
+| Secret | Description |
+|---|---|
+| `ASC_KEY_ID` | App Store Connect API key ID |
+| `ASC_ISSUER_ID` | App Store Connect issuer ID |
+| `ASC_PRIVATE_KEY_P8_BASE64` | Base64-encoded App Store Connect `.p8` private key |
+
+Create the base64 private key value on macOS:
+
+```sh
+base64 -i AuthKey_<KEY_ID>.p8 | pbcopy
+```
+
+The TestFlight workflow writes the key to a temporary ignored path, creates a
+repo-local `.asc/config.json`, and passes the same key to `xcodebuild` for
+automatic signing with `-allowProvisioningUpdates`.
+
+Manual TestFlight publish:
+
+1. Open GitHub Actions.
+2. Select `Apple TestFlight`.
+3. Run the workflow.
+4. Optionally enter `version`; leave it empty to use `MARKETING_VERSION` from
+   `apple/project.yml`.
+
+### Local Release Tools
 
 Install asc:
 

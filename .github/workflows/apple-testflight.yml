@@ -1,0 +1,134 @@
+name: Apple TestFlight
+
+on:
+  workflow_run:
+    workflows:
+      - Apple Build and Test
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version. Leave empty to read MARKETING_VERSION from apple/project.yml."
+        required: false
+        type: string
+
+concurrency:
+  group: apple-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: Upload LinXApple to TestFlight
+    runs-on: macos-latest
+    timeout-minutes: 90
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    env:
+      ASC_APP_ID: ${{ vars.LINX_APPLE_ASC_APP_ID }}
+      TESTFLIGHT_GROUP: ${{ vars.LINX_APPLE_TESTFLIGHT_GROUP }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_P8_BASE64: ${{ secrets.ASC_PRIVATE_KEY_P8_BASE64 }}
+      ASC_BYPASS_KEYCHAIN: "1"
+      ASC_STRICT_AUTH: "true"
+      CONFIRM: "1"
+      VERSION_INPUT: ${{ github.event.inputs.version }}
+
+    steps:
+      - name: Checkout workflow run commit
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout manual ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
+      - name: Validate release environment
+        run: |
+          set -euo pipefail
+          : "${ASC_APP_ID:?LINX_APPLE_ASC_APP_ID repository variable is required}"
+          : "${TESTFLIGHT_GROUP:?LINX_APPLE_TESTFLIGHT_GROUP repository variable is required}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID secret is required}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID secret is required}"
+          : "${ASC_PRIVATE_KEY_P8_BASE64:?ASC_PRIVATE_KEY_P8_BASE64 secret is required}"
+
+      - name: Install tools
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          if ! command -v asc >/dev/null 2>&1; then
+            brew install asc
+          fi
+
+      - name: Cache SwiftPM and DerivedData
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: apple-spm-deriveddata-${{ runner.os }}-${{ hashFiles('apple/LinXApple.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            apple-spm-deriveddata-${{ runner.os }}-
+
+      - name: Resolve version
+        run: |
+          set -euo pipefail
+          if [ -n "${VERSION_INPUT:-}" ]; then
+            version="$VERSION_INPUT"
+          else
+            version="$(ruby -ryaml -e 'puts YAML.load_file("apple/project.yml").fetch("settings").fetch("base").fetch("MARKETING_VERSION")')"
+          fi
+          if [ -z "$version" ]; then
+            echo "error: VERSION is empty" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Configure asc authentication
+        run: |
+          set -euo pipefail
+          mkdir -p apple/.asc/tmp
+          key_path="$PWD/apple/.asc/tmp/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s' "$ASC_PRIVATE_KEY_P8_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          ASC_PRIVATE_KEY_PATH="$key_path" ruby -rjson -e 'File.write("apple/.asc/config.json", JSON.pretty_generate({
+            key_id: ENV.fetch("ASC_KEY_ID"),
+            issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+            private_key_path: ENV.fetch("ASC_PRIVATE_KEY_PATH"),
+            app_id: ENV.fetch("ASC_APP_ID")
+          }))'
+          {
+            echo "ASC_XCODEBUILD_AUTH_KEY_PATH=$key_path"
+            echo "ASC_XCODEBUILD_AUTH_KEY_ID=$ASC_KEY_ID"
+            echo "ASC_XCODEBUILD_AUTH_KEY_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare LinXApple
+        run: |
+          cd apple
+          FORCE_XCODEGEN=1 ./scripts/release-ios.sh prepare
+
+      - name: Upload to TestFlight
+        run: |
+          cd apple
+          ./scripts/release-ios.sh testflight
+
+      - name: Upload release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxapple-testflight-artifacts
+          path: |
+            apple/.asc/artifacts/*.ipa
+            apple/.asc/artifacts/*.xcarchive
+            apple/.asc/reports/*.xcresult
+            apple/.asc/runs/*.log
+          if-no-files-found: ignore

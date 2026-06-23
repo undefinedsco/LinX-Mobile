@@ -1,0 +1,105 @@
+name: Apple Build and Test
+
+on:
+  push:
+    paths:
+      - "apple/**"
+      - ".github/workflows/apple-build-test.yml"
+  pull_request:
+    paths:
+      - "apple/**"
+      - ".github/workflows/apple-build-test.yml"
+
+concurrency:
+  group: apple-build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and Test LinXApple
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Cache SwiftPM and DerivedData
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: apple-spm-deriveddata-${{ runner.os }}-${{ hashFiles('apple/LinXApple.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            apple-spm-deriveddata-${{ runner.os }}-
+
+      - name: Prepare LinXApple
+        run: |
+          cd apple
+          FORCE_XCODEGEN=1 ./scripts/release-ios.sh prepare
+
+      - name: Resolve simulator destination
+        id: destination
+        run: |
+          set -euo pipefail
+          devices="$(xcrun simctl list devices available)"
+          if printf '%s\n' "$devices" | grep -Eq '^[[:space:]]+iPhone 16[[:space:]]+\('; then
+            echo "value=platform=iOS Simulator,name=iPhone 16,OS=latest" >> "$GITHUB_OUTPUT"
+          else
+            iphone_name="$(
+              printf '%s\n' "$devices" |
+                awk -F ' \\(' '/^[[:space:]]+iPhone/ { name=$1; sub(/^[[:space:]]+/, "", name); sub(/[[:space:]]+$/, "", name); print name; exit }'
+            )"
+            if [ -z "$iphone_name" ]; then
+              echo "error: no available iPhone simulator found" >&2
+              exit 1
+            fi
+            echo "value=platform=iOS Simulator,name=${iphone_name},OS=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        run: |
+          cd apple
+          xcodebuild \
+            build \
+            -project LinXApple.xcodeproj \
+            -scheme LinXApple \
+            -configuration Debug \
+            -destination "${{ steps.destination.outputs.value }}"
+
+      - name: Test
+        run: |
+          cd apple
+          mkdir -p .asc/reports
+          result_bundle=".asc/reports/tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.xcresult"
+          rm -rf "$result_bundle"
+          xcodebuild \
+            test \
+            -project LinXApple.xcodeproj \
+            -scheme LinXApple \
+            -configuration Debug \
+            -destination "${{ steps.destination.outputs.value }}" \
+            -resultBundlePath "$result_bundle"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxapple-test-results
+          path: apple/.asc/reports/*.xcresult
+          if-no-files-found: ignore
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxapple-build-test-logs
+          path: apple/.asc/runs/*.log
+          if-no-files-found: ignore
