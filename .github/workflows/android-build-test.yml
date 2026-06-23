@@ -3,6 +3,10 @@ name: Android Build and Test
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "**"
+    tags:
+      - "**"
     paths:
       - "App.tsx"
       - "index.js"

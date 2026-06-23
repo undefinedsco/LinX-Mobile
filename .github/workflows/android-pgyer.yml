@@ -1,6 +1,9 @@
 name: Android Pgyer Release
 
 on:
+  push:
+    tags:
+      - "**"
   workflow_run:
     workflows:
       - Android Build and Test
@@ -24,6 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -33,6 +37,7 @@ jobs:
     timeout-minutes: 60
     if: >
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     env:
@@ -56,6 +61,50 @@ jobs:
       - name: Checkout current ref
         if: github.event_name != 'workflow_run'
         uses: actions/checkout@v4
+
+      - name: Wait for Android Build and Test
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          TAG_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            run_json="$(
+              gh run list \
+                --repo "$GITHUB_REPOSITORY" \
+                --workflow "Android Build and Test" \
+                --branch "$TAG_NAME" \
+                --commit "$TAG_SHA" \
+                --event push \
+                --limit 5 \
+                --json databaseId,status,conclusion,url \
+                --jq '.[0] // empty'
+            )"
+
+            if [ -n "$run_json" ]; then
+              status="$(printf '%s' "$run_json" | node -e 'let data = ""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data).status || ""));')"
+              conclusion="$(printf '%s' "$run_json" | node -e 'let data = ""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data).conclusion || ""));')"
+              run_url="$(printf '%s' "$run_json" | node -e 'let data = ""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data).url || ""));')"
+
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "ANDROID_BUILD_TEST_RUN_URL=$run_url" >> "$GITHUB_ENV"
+                  echo "Android Build and Test succeeded: $run_url"
+                  exit 0
+                fi
+                echo "error: Android Build and Test completed with conclusion '$conclusion': $run_url" >&2
+                exit 1
+              fi
+            fi
+
+            echo "Waiting for Android Build and Test for tag $TAG_NAME ($attempt/120)..."
+            sleep 30
+          done
+
+          echo "error: timed out waiting for Android Build and Test for tag $TAG_NAME" >&2
+          exit 1
 
       - name: Validate release environment
         run: |
@@ -129,7 +178,7 @@ jobs:
           else
             release_branch="$GITHUB_REF_NAME"
             release_commit="$GITHUB_SHA"
-            source_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            source_run_url="${ANDROID_BUILD_TEST_RUN_URL:-$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID}"
           fi
 
           {

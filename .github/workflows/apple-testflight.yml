@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "*"
+      - "!android-*"
   workflow_run:
     workflows:
       - Apple Build and Test
