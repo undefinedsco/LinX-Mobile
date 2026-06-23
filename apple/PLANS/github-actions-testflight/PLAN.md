@@ -2,8 +2,8 @@
 
 > 目标：为 `apple/` 原生 SwiftUI iOS App 提供两条独立 GitHub Actions 工作流。
 >
-> - `Apple Build and Test`：在 macOS runner 上执行 XcodeGen、build、test。
-> - `Apple TestFlight`：在 macOS runner 上复用 `apple/.asc` 归档、导出并上传 TestFlight。
+> - `Apple Build and Test`：在 `macos-26` runner 上执行 XcodeGen、build、test。
+> - `Apple TestFlight`：在 `macos-26` runner 上复用 `apple/.asc` 归档、导出并上传 TestFlight。
 >
 > 当前版本不包含本地语音模型或额外二进制 artifact 准备步骤。
 
@@ -208,7 +208,7 @@ base64 -i AuthKey_XXXXXX.p8 | pbcopy
 
 ## 6. 注意事项
 
-- `macos-latest` 是浮动 runner label；如需完全可复现构建，可后续固定为具体 macOS runner。
+- 两个 workflow 都固定使用 `macos-26`，即 GitHub-hosted macOS 26 Apple Silicon runner。
 - TestFlight workflow 不在 PR 上运行，避免发布 secrets 暴露给 PR 环境。
 - `ASC_PRIVATE_KEY_P8_BASE64` 只能放在 GitHub Secrets；生成的 `.asc/config.json`、`.asc/tmp/`、IPA、archive、xcresult 已由 `apple/.asc/.gitignore` 忽略。
 - `workflow_run` checkout 使用 `github.event.workflow_run.head_sha`，确保发布的是已经通过 build/test 的同一份代码。

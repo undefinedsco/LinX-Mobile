@@ -193,12 +193,14 @@ The App Store Connect release entry point is `scripts/release-ios.sh`. It wraps
 repo-local asc workflow files under `.asc/` and keeps generated archives, IPAs,
 reports, runs, and credentials out of source control.
 
-GitHub Actions provide two macOS workflows for CI and TestFlight publishing:
+GitHub Actions provide two macOS 26 workflows for CI and TestFlight publishing:
 
 - `Apple Build and Test`: runs XcodeGen, builds, and tests LinXApple when
   `apple/**` or the build/test workflow changes on push or pull request.
 - `Apple TestFlight`: runs after `Apple Build and Test` succeeds on `main`, or
   when started manually from the GitHub Actions page.
+
+Both workflows use GitHub's `macos-26` hosted runner.
 
 ### GitHub Actions Setup
 
