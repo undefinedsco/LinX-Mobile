@@ -5,6 +5,7 @@ import {
   chatIndexResource,
   messageResource,
 } from '../src/linx/pod/paths';
+import { normalizeCustomStorageServerUrl } from '../src/linx/storageSettings';
 import {
   createThreadPatch,
   escapeLiteral,
@@ -84,6 +85,12 @@ test('resolves Pod and runtime URLs using CLI-compatible rules', () => {
     'https://pods.example/alice/',
   );
   expect(
+    resolvePodBaseUrl({
+      webId: 'https://id.undefineds.co/alice/profile/card#me',
+      storageServerUrl: 'https://node-0000.undefineds.co',
+    }),
+  ).toBe('https://node-0000.undefineds.co/alice/');
+  expect(
     chatIndexResource('https://pods.example/alice/'),
   ).toBe('https://pods.example/alice/.data/chat/mobile-default/index.ttl');
   expect(
@@ -101,6 +108,19 @@ test('resolves Pod and runtime URLs using CLI-compatible rules', () => {
   expect(resolveRuntimeApiBaseUrl('https://api.undefineds.co/v1/')).toBe(
     'https://api.undefineds.co/v1',
   );
+});
+
+test('custom SP server is a storage override, not an IDP/provider shorthand', () => {
+  expect(
+    normalizeCustomStorageServerUrl('https://node-0000.undefineds.co'),
+  ).toBe('https://node-0000.undefineds.co/');
+  expect(normalizeCustomStorageServerUrl('   ')).toBeUndefined();
+  expect(() =>
+    normalizeCustomStorageServerUrl('alice.node-0000.undefineds.co'),
+  ).toThrow('Custom SP server must be an absolute http(s) URL');
+  expect(() =>
+    normalizeCustomStorageServerUrl('https://node-0000.undefineds.co/alice/'),
+  ).toThrow('Custom SP server must not include a pod owner path');
 });
 
 test('SPARQL builders escape user values and target mobile chat space', () => {

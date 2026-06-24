@@ -17,6 +17,8 @@ import type {
   LinxThreadSummary,
   RemoteChatMessage,
 } from '../types';
+import type { LinxLoginOptions } from '../storageSettings';
+import { normalizeCustomStorageServerUrl } from '../storageSettings';
 import {
   clearRecentThreadId,
   clearUserChatCache,
@@ -40,7 +42,7 @@ export interface LinxChatAppState {
   isUsingCachedFallback: boolean;
   canLoadMoreMessages: boolean;
   errorMessage?: string;
-  login(): Promise<void>;
+  login(options?: LinxLoginOptions): Promise<void>;
   logout(): Promise<void>;
   retry(): Promise<void>;
   newChat(): Promise<void>;
@@ -243,7 +245,7 @@ export function useLinxChatApp(): LinxChatAppState {
 
   const loadMessagesForThread = useCallback(
     async (
-      webId: string,
+      currentSession: LinxAuthSession,
       thread: LinxThreadSummary,
       limit: number = loadedMessageLimit.current,
     ): Promise<MessageLoadResult> => {
@@ -252,7 +254,7 @@ export function useLinxChatApp(): LinxChatAppState {
       setIsLoadingMessages(true);
 
       try {
-        const loaded = await repository.loadMessages(webId, thread.id, limit);
+        const loaded = await repository.loadMessages(currentSession, thread.id, limit);
         if (
           messageLoadId.current !== requestId ||
           selectedThreadRef.current?.id !== thread.id
@@ -275,8 +277,8 @@ export function useLinxChatApp(): LinxChatAppState {
         setHasLoadedAllMessages(loaded.length < limit);
         setIsUsingCachedFallback(false);
         setErrorMessage(undefined);
-        await saveMessagesSnapshot(webId, thread.id, nextMessages);
-        await saveRecentThreadId(webId, thread.id);
+        await saveMessagesSnapshot(currentSession.webId, thread.id, nextMessages);
+        await saveRecentThreadId(currentSession.webId, thread.id);
         return 'loaded';
       } catch (error) {
         if (isAuthExpiredError(error)) {
@@ -290,7 +292,7 @@ export function useLinxChatApp(): LinxChatAppState {
           return 'loaded';
         }
 
-        const cachedMessages = await loadMessagesSnapshot(webId, thread.id, limit);
+        const cachedMessages = await loadMessagesSnapshot(currentSession.webId, thread.id, limit);
         if (cachedMessages.length > 0) {
           setMessagesState(cachedMessages);
           setHasLoadedAllMessages(cachedMessages.length < limit);
@@ -322,11 +324,11 @@ export function useLinxChatApp(): LinxChatAppState {
       try {
         const [modelId] = await Promise.all([
           resolvePreferredModelId(nextSession),
-          repository.bootstrap(nextSession.webId, LINX_CONTRACT.defaultModelId),
+          repository.bootstrap(nextSession, LINX_CONTRACT.defaultModelId),
         ]);
         setActiveModelId(modelId);
 
-        const loadedThreads = await repository.listThreads(nextSession.webId);
+        const loadedThreads = await repository.listThreads(nextSession);
         const sortedThreads = sortThreads(loadedThreads);
 
         if (sortedThreads.length === 0 && (didApplyCache || hasVisibleChatData())) {
@@ -352,7 +354,7 @@ export function useLinxChatApp(): LinxChatAppState {
 
         if (threadToSelect) {
           const loadResult = await loadMessagesForThread(
-            nextSession.webId,
+            nextSession,
             threadToSelect,
             LINX_CONTRACT.pageSize,
           );
@@ -429,12 +431,16 @@ export function useLinxChatApp(): LinxChatAppState {
     };
   }, [authController, bootstrap, invalidateMessageLoads]);
 
-  const login = useCallback(async () => {
+  const login = useCallback(async (options: LinxLoginOptions = {}) => {
     setPhase('authenticating');
     setErrorMessage(undefined);
     setIsUsingCachedFallback(false);
     try {
-      const nextSession = await authController.login();
+      const storageServerUrl = normalizeCustomStorageServerUrl(options.storageServerUrl);
+      const loggedInSession = await authController.login();
+      const nextSession = storageServerUrl
+        ? { ...loggedInSession, storageServerUrl }
+        : loggedInSession;
       await bootstrap(nextSession);
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));
@@ -510,7 +516,7 @@ export function useLinxChatApp(): LinxChatAppState {
       }
 
       try {
-        await loadMessagesForThread(session.webId, thread, LINX_CONTRACT.pageSize);
+        await loadMessagesForThread(session, thread, LINX_CONTRACT.pageSize);
       } catch (error) {
         if (isAuthExpiredError(error)) {
           await handleAuthExpired();
@@ -544,7 +550,7 @@ export function useLinxChatApp(): LinxChatAppState {
       try {
         let thread = selectedThreadRef.current;
         if (!thread) {
-          const createdThread = await repository.createThread(session.webId);
+          const createdThread = await repository.createThread(session);
           thread = createdThread;
           setThreadsState([createdThread, ...threadsRef.current]);
           setSelectedThreadState(createdThread);
@@ -553,12 +559,9 @@ export function useLinxChatApp(): LinxChatAppState {
           await saveRecentThreadId(session.webId, createdThread.id);
         }
 
-        const persistedHistory = await repository.loadMessages(
-          session.webId,
-          thread.id,
-        );
+        const persistedHistory = await repository.loadMessages(session, thread.id);
         const userMessage = await repository.appendUserMessage(
-          session.webId,
+          session,
           thread.id,
           trimmed,
         );
@@ -581,7 +584,7 @@ export function useLinxChatApp(): LinxChatAppState {
         });
 
         const assistantMessage = await repository.appendAssistantMessage(
-          session.webId,
+          session,
           thread.id,
           completion.content,
         );
@@ -595,7 +598,7 @@ export function useLinxChatApp(): LinxChatAppState {
           await saveMessagesSnapshot(session.webId, thread.id, nextMessages);
         }
 
-        const refreshedThreads = await repository.listThreads(session.webId);
+        const refreshedThreads = await repository.listThreads(session);
         if (refreshedThreads.length > 0) {
           setThreadsState(refreshedThreads);
           await saveThreadsSnapshot(session.webId, threadsRef.current);
@@ -649,7 +652,7 @@ export function useLinxChatApp(): LinxChatAppState {
     loadedMessageLimit.current += LINX_CONTRACT.pageSize;
     try {
       await loadMessagesForThread(
-        session.webId,
+        session,
         selectedThreadRef.current,
         loadedMessageLimit.current,
       );

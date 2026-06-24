@@ -1,5 +1,10 @@
 import { LINX_CONTRACT } from '../contract';
-import type { LinxChatMessage, LinxMessageRole, LinxThreadSummary } from '../types';
+import type {
+  LinxAuthSession,
+  LinxChatMessage,
+  LinxMessageRole,
+  LinxThreadSummary,
+} from '../types';
 import { makeUUID } from '../utils';
 import type { PodClient, SPARQLQueryResponse, SPARQLValue } from './client';
 import {
@@ -101,8 +106,8 @@ function mapMessageBinding(
 export class PodChatRepository {
   constructor(private readonly client: PodClient) {}
 
-  async bootstrap(webId: string, modelId: string): Promise<void> {
-    const baseUrl = resolvePodBaseUrl(webId);
+  async bootstrap(session: LinxAuthSession, modelId: string): Promise<void> {
+    const baseUrl = this.baseUrl(session);
     const now = new Date();
 
     await this.ensureContainer(dataContainer(baseUrl));
@@ -134,8 +139,8 @@ export class PodChatRepository {
     }
   }
 
-  async listThreads(webId: string, limit = LINX_CONTRACT.pageSize): Promise<LinxThreadSummary[]> {
-    const baseUrl = resolvePodBaseUrl(webId);
+  async listThreads(session: LinxAuthSession, limit = LINX_CONTRACT.pageSize): Promise<LinxThreadSummary[]> {
+    const baseUrl = this.baseUrl(session);
     const sparql = threadsQuery({
       chatUri: chatUri(baseUrl),
       limit,
@@ -150,11 +155,11 @@ export class PodChatRepository {
   }
 
   async createThread(
-    webId: string,
+    session: LinxAuthSession,
     title = LINX_CONTRACT.defaultThreadTitle,
     workspace = LINX_CONTRACT.defaultThreadWorkspace,
   ): Promise<LinxThreadSummary> {
-    const baseUrl = resolvePodBaseUrl(webId);
+    const baseUrl = this.baseUrl(session);
     const id = makeUUID();
     const now = new Date();
     const nowIso = now.toISOString();
@@ -180,12 +185,12 @@ export class PodChatRepository {
   }
 
   async loadMessages(
-    webId: string,
+    session: LinxAuthSession,
     threadId: string,
     limit?: number,
     offset = 0,
   ): Promise<LinxChatMessage[]> {
-    const baseUrl = resolvePodBaseUrl(webId);
+    const baseUrl = this.baseUrl(session);
     const response = await this.queryFirstUsefulEndpoint(
       baseUrl,
       messagesQuery({
@@ -205,21 +210,21 @@ export class PodChatRepository {
   }
 
   async appendUserMessage(
-    webId: string,
+    session: LinxAuthSession,
     threadId: string,
     content: string,
   ): Promise<LinxChatMessage> {
-    return this.appendMessage(webId, threadId, webId, 'user', content);
+    return this.appendMessage(session, threadId, session.webId, 'user', content);
   }
 
   async appendAssistantMessage(
-    webId: string,
+    session: LinxAuthSession,
     threadId: string,
     content: string,
   ): Promise<LinxChatMessage> {
-    const baseUrl = resolvePodBaseUrl(webId);
+    const baseUrl = this.baseUrl(session);
     return this.appendMessage(
-      webId,
+      session,
       threadId,
       agentUri(baseUrl),
       'assistant',
@@ -228,13 +233,13 @@ export class PodChatRepository {
   }
 
   private async appendMessage(
-    webId: string,
+    session: LinxAuthSession,
     threadId: string,
     maker: string,
     role: LinxMessageRole,
     content: string,
   ): Promise<LinxChatMessage> {
-    const baseUrl = resolvePodBaseUrl(webId);
+    const baseUrl = this.baseUrl(session);
     const now = new Date();
     const id = makeUUID();
 
@@ -316,5 +321,12 @@ export class PodChatRepository {
       return firstEmpty;
     }
     throw lastError ?? new Error('Pod query failed.');
+  }
+
+  private baseUrl(session: LinxAuthSession): string {
+    return resolvePodBaseUrl({
+      webId: session.webId,
+      storageServerUrl: session.storageServerUrl,
+    });
   }
 }

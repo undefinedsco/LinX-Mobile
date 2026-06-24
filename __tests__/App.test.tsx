@@ -74,6 +74,61 @@ test('renders login screen when unauthenticated', async () => {
   });
 });
 
+test('login screen exposes cloud provider and custom SP as advanced storage settings', async () => {
+  mockedUseLinxChatApp.mockReturnValue(makeAppState());
+
+  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'storage-settings-toggle' }).props.onPress();
+  });
+
+  expect(renderer!.root.findByProps({ children: 'Provider / IDP' })).toBeTruthy();
+  expect(renderer!.root.findByProps({ children: 'https://id.undefineds.co/' })).toBeTruthy();
+  expect(renderer!.root.findByProps({ children: 'Auto discover from WebID' })).toBeTruthy();
+  expect(renderer!.root.findByProps({ children: 'Custom SP URL' })).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.unmount();
+  });
+});
+
+test('login passes custom SP server while keeping cloud provider fixed', async () => {
+  const login = jest.fn().mockResolvedValue(undefined);
+  mockedUseLinxChatApp.mockReturnValue(makeAppState({ login }));
+
+  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'storage-settings-toggle' }).props.onPress();
+  });
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'storage-custom-option' }).props.onPress();
+  });
+  await ReactTestRenderer.act(async () => {
+    renderer!.root
+      .findByProps({ testID: 'custom-sp-url-input' })
+      .props.onChangeText('https://node-0000.undefineds.co/');
+  });
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'login-button' }).props.onPress();
+  });
+
+  expect(login).toHaveBeenCalledWith({
+    storageServerUrl: 'https://node-0000.undefineds.co/',
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.unmount();
+  });
+});
+
 test('renders chat screen after restore', async () => {
   mockedUseLinxChatApp.mockReturnValue(
     makeAppState({

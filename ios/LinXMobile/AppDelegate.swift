@@ -24,13 +24,50 @@ class AppDelegate: UIResponder, UIApplicationDelegate, RNAppAuthAuthorizationFlo
 
     window = UIWindow(frame: UIScreen.main.bounds)
 
+    let arguments = ProcessInfo.processInfo.arguments
+    let isP2PSmoke = arguments.contains("--p2p-smoke")
+    let moduleName = isP2PSmoke ? "LinXP2PSmoke" : "LinXMobile"
+    let initialProperties = isP2PSmoke
+      ? ["p2pSmokeDefaults": p2pSmokeDefaults(from: arguments)]
+      : [:]
+
     factory.startReactNative(
-      withModuleName: "LinXMobile",
+      withModuleName: moduleName,
       in: window,
+      initialProperties: initialProperties,
       launchOptions: launchOptions
     )
 
     return true
+  }
+
+
+  private func p2pSmokeDefaults(from arguments: [String]) -> [String: String] {
+    var defaults: [String: String] = [:]
+    copyArgument(arguments, into: &defaults, field: "localSpUrl", name: "--local-sp-url")
+    copyArgument(arguments, into: &defaults, field: "idpUrl", name: "--idp-url")
+    copyArgument(arguments, into: &defaults, field: "storageUrl", name: "--storage-url")
+    copyArgument(arguments, into: &defaults, field: "apiBaseUrl", name: "--api-base-url")
+    copyArgument(arguments, into: &defaults, field: "nodeId", name: "--node-id")
+    copyArgument(arguments, into: &defaults, field: "clientId", name: "--client-id")
+    copyArgument(arguments, into: &defaults, field: "resourcePath", name: "--resource-path")
+    copyArgument(arguments, into: &defaults, field: "updateManifestUrl", name: "--update-manifest-url")
+    return defaults
+  }
+
+  private func copyArgument(
+    _ arguments: [String],
+    into defaults: inout [String: String],
+    field: String,
+    name: String
+  ) {
+    guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else {
+      return
+    }
+    let value = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+    if !value.isEmpty {
+      defaults[field] = value
+    }
   }
 
   func application(

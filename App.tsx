@@ -13,15 +13,22 @@ import {
 } from 'react-native-safe-area-context';
 import { useLinxChatApp } from './src/linx/chat/useLinxChatApp';
 import { ChatScreen } from './src/linx/ui/ChatScreen';
+import type { LinxLoginOptions } from './src/linx/storageSettings';
 import { LoginView } from './src/linx/ui/LoginView';
+import { UpdatePrompt } from './src/linx/update/UpdatePrompt';
 
-function App() {
+function App({
+  updateManifestUrl,
+}: {
+  updateManifestUrl?: string;
+} = {}) {
   const isDarkMode = useColorScheme() === 'dark';
 
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <SafeAreaView style={styles.safeArea}>
+        <UpdatePrompt manifestUrl={updateManifestUrl} />
         <AppContent />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -44,8 +51,8 @@ function AppContent() {
       <LoginView
         errorMessage={app.errorMessage}
         isBusy={app.phase === 'authenticating'}
-        onLogin={() => {
-          app.login().catch(() => undefined);
+        onLogin={(options?: LinxLoginOptions) => {
+          app.login(options).catch(() => undefined);
         }}
       />
     );

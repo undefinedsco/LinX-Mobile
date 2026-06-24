@@ -47,13 +47,14 @@ function toServiceConfiguration(
 function makeAuthConfiguration(input: {
   issuerUrl: string;
   clientId: string;
+  redirectUrl: string;
   serviceConfiguration: ServiceConfiguration;
 }): AuthConfiguration {
   return {
     issuer: trimTrailingSlash(input.issuerUrl),
     serviceConfiguration: input.serviceConfiguration,
     clientId: input.clientId,
-    redirectUrl: LINX_CONTRACT.redirectUrl,
+    redirectUrl: input.redirectUrl,
     scopes: [...LINX_CONTRACT.loginScopes],
     usePKCE: true,
   };
@@ -72,8 +73,18 @@ function shouldRefresh(session: LinxAuthSession, forceRefresh: boolean): boolean
 }
 
 export class LinxAuthController implements TokenProvider {
+  private readonly issuerOrigin: string;
+  private readonly redirectUrl: string;
   private session: LinxAuthSession | null = null;
   private refreshPromise: Promise<string> | null = null;
+
+  constructor(options: {
+    issuerOrigin?: string;
+    redirectUrl?: string;
+  } = {}) {
+    this.issuerOrigin = ensureTrailingSlash(options.issuerOrigin ?? LINX_CONTRACT.issuerOrigin);
+    this.redirectUrl = options.redirectUrl ?? LINX_CONTRACT.redirectUrl;
+  }
 
   async restore(): Promise<LinxAuthSession | null> {
     this.session = await loadAuthSession();
@@ -94,7 +105,7 @@ export class LinxAuthController implements TokenProvider {
   }
 
   async login(): Promise<LinxAuthSession> {
-    const issuerUrl = ensureTrailingSlash(LINX_CONTRACT.issuerOrigin);
+    const issuerUrl = this.issuerOrigin;
     const discovery = await discoverOIDC(issuerUrl);
     if (!discovery.registration_endpoint) {
       throw new LinxAppError('OIDC provider does not support dynamic client registration.');
@@ -104,7 +115,7 @@ export class LinxAuthController implements TokenProvider {
     const registration = await register({
       issuer: trimTrailingSlash(issuerUrl),
       serviceConfiguration,
-      redirectUrls: [LINX_CONTRACT.redirectUrl],
+      redirectUrls: [this.redirectUrl],
       responseTypes: ['code'],
       grantTypes: ['authorization_code', 'refresh_token'],
       tokenEndpointAuthMethod: 'none',
@@ -118,6 +129,7 @@ export class LinxAuthController implements TokenProvider {
       ...makeAuthConfiguration({
         issuerUrl,
         clientId: registration.clientId,
+        redirectUrl: this.redirectUrl,
         serviceConfiguration,
       }),
       additionalParameters: {
@@ -192,6 +204,7 @@ export class LinxAuthController implements TokenProvider {
         makeAuthConfiguration({
           issuerUrl: current.issuerUrl,
           clientId: current.clientId,
+          redirectUrl: this.redirectUrl,
           serviceConfiguration: toServiceConfiguration(discovery),
         }),
         { refreshToken: current.refreshToken },

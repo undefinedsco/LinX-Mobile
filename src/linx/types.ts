@@ -23,6 +23,7 @@ export interface LinxAuthSession {
   refreshToken: string;
   accessTokenExpirationDate: string;
   idToken?: string;
+  storageServerUrl?: string;
 }
 
 export interface LinxThreadSummary {

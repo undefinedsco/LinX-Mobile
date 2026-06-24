@@ -1,12 +1,21 @@
 import { LINX_CONTRACT } from '../contract';
 import { ensureTrailingSlash, trimTrailingSlash } from '../utils';
 
-export function resolvePodBaseUrl(webId: string): string {
+export function resolvePodBaseUrl(input: string | {
+  webId: string;
+  storageServerUrl?: string;
+}): string {
+  const webId = typeof input === 'string' ? input : input.webId;
   const target = new URL(webId);
   const parts = target.pathname.split('/').filter(Boolean);
   const profileIndex = parts.indexOf('profile');
   const podParts = profileIndex >= 0 ? parts.slice(0, profileIndex) : parts.slice(0, 1);
   const path = podParts.length > 0 ? `/${podParts.join('/')}/` : '/';
+
+  if (typeof input !== 'string' && input.storageServerUrl) {
+    return `${ensureTrailingSlash(input.storageServerUrl)}${path.replace(/^\/+/, '')}`;
+  }
+
   return `${target.origin}${path}`;
 }
 

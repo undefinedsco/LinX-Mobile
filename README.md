@@ -284,3 +284,225 @@ xcodebuild test \
 - Keep screen state and user interaction orchestration in `ChatUI`.
 - Do not hardcode tokens or user-specific WebIDs.
 - Preserve Swift 6 strict concurrency compatibility in the native Apple app.
+
+## P2P Smoke Mobile Validation
+
+The React Native host includes a separate P2P smoke entry for validating the
+non-browser Xpod P2P data plane. This entry is only a validation surface; it
+does not replace the product chat entry.
+
+Android defines a separate debug validation package:
+
+- product package: `productDebug`, component `LinXMobile`
+- P2P smoke package: `p2pSmokeDebug`, component `LinXP2PSmoke`, application id suffix `.p2psmoke`
+
+Build and install when a Java/Android toolchain is available:
+
+```sh
+cd android
+./gradlew :app:installP2pSmokeDebug
+```
+
+If the APK was built on this workstation and you want to send/install it
+manually, use:
+
+```sh
+APK=/Users/ganlu/develop/linx-mobile/android/app/build/outputs/apk/p2pSmoke/debug/app-p2pSmoke-debug.apk
+ANDROID_ADB_SERVER_PORT=5041 /opt/homebrew/bin/adb install -r "$APK"
+```
+
+For less manual input during real-device acceptance, launch with verifier fields
+prefilled from adb intent extras. Add `--capture-result` when you want the
+launcher to wait for the native `RESULT_JSON` logcat marker and write the
+verifier-ready client JSON automatically:
+
+```sh
+npm run p2p:android:launch -- \
+  --adb /opt/homebrew/bin/adb \
+  --adb-server-port 5041 \
+  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --client-id phone-1 \
+  --capture-result mobile-result.json \
+  --skip-build
+```
+
+Use `--dry-run` first when no phone is attached or when checking the exact adb
+commands that will be executed:
+
+```sh
+npm run p2p:android:launch -- \
+  --adb /opt/homebrew/bin/adb \
+  --adb-server-port 5041 \
+  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --client-id phone-1 \
+  --dry-run
+```
+
+Latest locally built Android debug APKs:
+
+```text
+productDebug  1.0.1 (2)  b85209a8ae8d0b6f52dd88543bf00825400096212111a6dcba4a22aa1606075f
+p2pSmokeDebug 1.0.1 (2)  e60d234d65375d94a716ae111cc47fdf81f327bffc69a90040822eda51db44a3
+```
+
+Current P2P debug package metadata:
+
+- package: `com.linxmobile.p2psmoke`
+- launch activity: `com.linxmobile.MainActivity`
+- app label: `LinX P2P Smoke`
+
+For iOS, use Xcode on a true iPhone device:
+
+1. Open `ios/LinXMobile.xcworkspace`.
+2. Select the `LinXMobile` scheme and a connected iPhone.
+3. Edit Scheme -> Run -> Arguments and add:
+
+   ```text
+   --p2p-smoke
+   --local-sp-url https://node-0000.undefineds.co/alice/
+   --client-id phone-1
+   ```
+
+4. Run from Xcode. USB/Xcode is only the install, launch, and log-collection
+   control path. The data-plane evidence must still show raw TCP P2P on the
+   iPhone network.
+5. In the Xcode console, search for `RESULT_JSON `. Copy the JSON payload after
+   that marker into `mobile-result.json`; it is already reduced to the verifier
+   fields so it is safer to paste than the full on-screen result.
+
+Simulator is not final P2P acceptance evidence. It can validate UI and bridge
+shape, but it runs in the Mac network context and does not prove phone NAT /
+cellular behavior.
+
+The smoke screen intentionally asks only for user-facing configuration:
+
+- Local SP URL, such as `https://node-0000.undefineds.co/alice/`. This is the
+  self-deployed/local data endpoint. User-in-host shorthand such as
+  `alice.node-0000.undefineds.co` is not supported.
+- Cloud IDP provider, normally `https://id.undefineds.co/`. Local data does not
+  imply a local IDP; login remains against the cloud provider.
+- SP/storage URL, normally derived from Local SP URL and used for Solid read/write
+  target construction and node id derivation.
+- resource path to write/read.
+- client id, so the phone result can be matched with the node-side accept runner.
+
+Tap `Login to IDP` first. The app uses the configured IDP for OIDC login and
+then reuses the on-device Solid access token for the signal session and
+canonical Solid HTTP frames. Users do not type signal tokens into the smoke UI.
+
+The smoke app does not ask for client host/address. The mobile client sends
+port-only raw TCP candidates and the Xpod signal service injects the observed
+client address from the signal request (`X-Forwarded-For`, `X-Real-IP`, or
+socket remote address). The result JSON reports connector events and only counts
+the smoke as successful when the selected route is `p2p` and both the P2P HTTP
+PUT and GET requests return 2xx responses.
+
+For real-network acceptance, run the Xpod node-side accept smoke on the SP
+machine first. The default commands should omit both node and client host
+arguments so signal can inject observed addresses for port-only candidates:
+
+```sh
+cd /Users/ganlu/develop/xpod
+bun run smoke:p2p:realnet -- plan \
+  --api-base-url https://api.undefineds.co/ \
+  --node-id node-0000 \
+  --node-token "$XPOD_NODE_TOKEN" \
+  --base-url https://node-0000.undefineds.co/ \
+  --target-base-url http://127.0.0.1:3000/ \
+  --client-id phone-1 \
+  --resource-url https://node-0000.undefineds.co/alice/.data/linx-mobile-p2p-smoke.txt
+```
+
+Run the printed node command on the SP machine. Then run the mobile smoke app
+from the phone or from Xcode on a true iPhone device, use the generated `mobile`
+field values in the smoke screen, tap `Login to IDP`, and run the smoke.
+On Android, prefer `--capture-result mobile-result.json` so adb captures the
+native log marker automatically. On iOS, copy the Xcode console payload after
+`RESULT_JSON `. `Share result JSON` remains available as a manual fallback when
+log capture is not convenient. Save the node and mobile JSON outputs, then pass
+them to the verifier as files:
+
+```sh
+bun run smoke:p2p:realnet -- verify \
+  --client-id phone-1 \
+  --node-result-file node-result.json \
+  --client-result-file mobile-result.json \
+  --require-put-status-2xx \
+  --expected-status 200
+```
+
+For Android, prefer the Xpod-side one-command orchestrator once the phone is
+attached. It generates the plan, starts the node accept runner, launches this
+app with adb extras, captures `mobile-result.json`, and runs the verifier:
+
+```sh
+cd /Users/ganlu/develop/xpod
+bun run smoke:p2p:android-realnet -- \
+  --linx-mobile-root /Users/ganlu/develop/linx-mobile \
+  --api-base-url https://api.undefineds.co/ \
+  --node-id node-0000 \
+  --node-token "$XPOD_NODE_TOKEN" \
+  --base-url https://node-0000.undefineds.co/ \
+  --target-base-url http://127.0.0.1:3000/ \
+  --client-id phone-1 \
+  --resource-url https://node-0000.undefineds.co/alice/.data/linx-mobile-p2p-smoke.txt \
+  --adb /opt/homebrew/bin/adb \
+  --adb-server-port 5041 \
+  --skip-build
+```
+
+Use `--dry-run` first to inspect the generated commands without requiring an
+attached device. The user still needs to complete `Login to IDP` and run the
+P2P smoke in the app; adb is only the install, launch, field-prefill, and
+log-capture channel.
+
+
+### Automatic update prompt
+
+The React Native product entry and the P2P smoke entry both mount a lightweight
+automatic update prompt. It is disabled unless an update manifest URL is
+supplied, so local and validation builds do not depend on a hardcoded release
+endpoint.
+
+Manifest shape:
+
+```json
+{
+  "latestVersion": "1.0.1",
+  "latestBuild": 2,
+  "minimumBuild": 1,
+  "downloadUrl": "https://downloads.undefineds.co/linx-mobile/latest",
+  "releaseNotes": "P2P smoke validation build."
+}
+```
+
+If `latestBuild` is greater than the bundled build number, the app shows
+`New LinX Mobile version available` and opens `downloadUrl` when the user taps
+`Download`. If `minimumBuild` is greater than the current build, the prompt is
+shown as required and cannot be dismissed.
+
+For Android smoke launches, pass the manifest through adb extras:
+
+```sh
+npm run p2p:android:launch -- \
+  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --client-id phone-1 \
+  --update-manifest-url https://downloads.undefineds.co/linx-mobile/update.json
+```
+
+For iOS smoke launches from Xcode, add `--update-manifest-url <url>` next to
+`--p2p-smoke` in the Run arguments.
+
+Expected mobile evidence for success:
+
+- `smokeOk: true`
+- `route.kind: "p2p"`
+- `putStatus: 200..299`
+- `status: 200..299`
+- `clientAddress: "signal-observed"`
+- at least one connector event with `type: "success"`
+
+This still depends on the actual networks allowing raw TCP hole punching. If it
+fails with no compatible candidates or repeated connect retries, keep the
+existing Cloudflare Tunnel / FRP / normal SP route fallback; the failure only
+means this network pair did not prove raw TCP P2P.

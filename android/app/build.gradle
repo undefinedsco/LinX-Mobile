@@ -92,8 +92,8 @@ def parsePositiveInt = { String rawValue, String name ->
     return intValue
 }
 
-def androidVersionCodeValue = parsePositiveInt(getEnvOrProperty("ANDROID_VERSION_CODE") ?: "1", "ANDROID_VERSION_CODE")
-def androidVersionNameValue = getEnvOrProperty("ANDROID_VERSION_NAME") ?: "1.0"
+def androidVersionCodeValue = parsePositiveInt(getEnvOrProperty("ANDROID_VERSION_CODE") ?: "2", "ANDROID_VERSION_CODE")
+def androidVersionNameValue = getEnvOrProperty("ANDROID_VERSION_NAME") ?: "1.0.1"
 
 def releaseKeystorePath = getEnvOrProperty("ANDROID_KEYSTORE_PATH")
 def releaseKeystorePassword = getEnvOrProperty("ANDROID_KEYSTORE_PASSWORD")
@@ -124,7 +124,8 @@ android {
         versionCode androidVersionCodeValue
         versionName androidVersionNameValue
         manifestPlaceholders = [
-            appAuthRedirectScheme: "co.undefineds.linx.mobile"
+            appAuthRedirectScheme: "co.undefineds.linx.mobile",
+            usesCleartextTraffic: "false"
         ]
     }
     signingConfigs {
@@ -144,6 +145,22 @@ android {
                     storeType releaseKeystoreType
                 }
             }
+        }
+    }
+    flavorDimensions "surface"
+    productFlavors {
+        product {
+            dimension "surface"
+        }
+        p2pSmoke {
+            dimension "surface"
+            applicationIdSuffix ".p2psmoke"
+            resValue "string", "app_name", "LinX P2P Smoke"
+            matchingFallbacks = ["debug"]
+            manifestPlaceholders = [
+                appAuthRedirectScheme: "co.undefineds.linx.mobile.p2psmoke",
+                usesCleartextTraffic: "true"
+            ]
         }
     }
     buildTypes {
