@@ -55,6 +55,7 @@ export function P2PSmokeScreen({
   const [session, setSession] = useState<LinxAuthSession | null>(initialSession ?? null);
   const [result, setResult] = useState<P2PSmokeEvidence | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [appliedLocalSpUrl, setAppliedLocalSpUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSession) {
@@ -64,16 +65,25 @@ export function P2PSmokeScreen({
 
   const applyLocalSpUrl = () => {
     setError(null);
+    setResult(null);
     try {
       const derived = deriveP2PSmokeDefaultsFromLocalStorageUrl(localSpUrl || storageUrl);
       setIdpUrl(derived.idpUrl);
       setStorageUrl(derived.storageUrl);
+      setLocalSpUrl(derived.storageUrl);
       setApiBaseUrl(derived.apiBaseUrl);
       setNodeId(derived.nodeId);
       setResourcePath(derived.resourcePath);
+      setAppliedLocalSpUrl(derived.storageUrl);
     } catch (caught) {
+      setAppliedLocalSpUrl(null);
       setError(caught instanceof Error ? caught.message : String(caught));
     }
+  };
+
+  const updateLocalSpUrl = (value: string) => {
+    setLocalSpUrl(value);
+    setAppliedLocalSpUrl(null);
   };
 
   const login = async () => {
@@ -136,7 +146,7 @@ export function P2PSmokeScreen({
 
       <Field
         label="Local SP URL"
-        onChangeText={setLocalSpUrl}
+        onChangeText={updateLocalSpUrl}
         placeholder="https://node-0000.undefineds.co/alice/"
         value={localSpUrl}
       />
@@ -147,6 +157,16 @@ export function P2PSmokeScreen({
         style={[styles.secondaryButton, (isLoggingIn || isRunning) && styles.buttonDisabled]}>
         <Text style={styles.secondaryButtonText}>Apply local SP</Text>
       </Pressable>
+      {appliedLocalSpUrl ? (
+        <View style={styles.appliedBox}>
+          <Text selectable style={styles.appliedText}>
+            {`Local SP applied: ${appliedLocalSpUrl}`}
+          </Text>
+          <Text style={styles.appliedHint}>
+            Cloud login remains active; the local SP is only the storage target.
+          </Text>
+        </View>
+      ) : null}
       <Field label="Cloud IDP provider" onChangeText={setIdpUrl} value={idpUrl} />
       <Field label="SP storage URL" onChangeText={setStorageUrl} value={storageUrl} />
       <Field label="Client ID" onChangeText={setClientId} value={clientId} />
@@ -312,6 +332,24 @@ const styles = StyleSheet.create({
     color: '#b42318',
     fontSize: 13,
     fontWeight: '700',
+  },
+  appliedBox: {
+    backgroundColor: '#f5faf7',
+    borderColor: '#bfe2d5',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+  },
+  appliedText: {
+    color: '#0d7568',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  appliedHint: {
+    color: '#42534e',
+    fontSize: 12,
+    lineHeight: 17,
   },
   derivedBox: {
     backgroundColor: '#f5faf7',
