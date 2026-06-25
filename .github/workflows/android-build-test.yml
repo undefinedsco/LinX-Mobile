@@ -114,9 +114,10 @@ jobs:
           cd android
           chmod +x ./gradlew
           ./gradlew \
-            :app:testDebugUnitTest \
-            :app:assembleDebug \
-            :app:assembleRelease \
+            :app:testProductDebugUnitTest \
+            :app:assembleProductDebug \
+            :app:assembleP2pSmokeDebug \
+            :app:assembleProductRelease \
             --no-daemon \
             --stacktrace
 
@@ -126,8 +127,9 @@ jobs:
         with:
           name: linxmobile-android-build-test-apks
           path: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/product/debug/*.apk
+            android/app/build/outputs/apk/p2pSmoke/debug/*.apk
+            android/app/build/outputs/apk/product/release/*.apk
           if-no-files-found: ignore
           retention-days: 14
 

@@ -203,12 +203,12 @@ jobs:
           set -euo pipefail
           cd android
           chmod +x ./gradlew
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          ./gradlew :app:assembleProductRelease --no-daemon --stacktrace
 
       - name: Locate release APK
         run: |
           set -euo pipefail
-          apk_path="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
+          apk_path="$(find android/app/build/outputs/apk/product/release -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
           if [ -z "$apk_path" ]; then
             echo "error: release APK not found" >&2
             exit 1
