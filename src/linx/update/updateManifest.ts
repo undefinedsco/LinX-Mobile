@@ -1,3 +1,5 @@
+import { NativeModules } from 'react-native';
+
 export interface LinxAppVersion {
   versionName: string;
   buildNumber: number;
@@ -26,6 +28,10 @@ export const LINX_APP_VERSION: LinxAppVersion = {
 };
 
 export const DEFAULT_UPDATE_MANIFEST_URL = '';
+
+interface NativeAppInfoModule {
+  getVersion?: () => Promise<unknown>;
+}
 
 export function normalizeUpdateManifestUrl(value?: string | null): string | null {
   const trimmed = value?.trim();
@@ -57,6 +63,7 @@ export function getAvailableUpdate(
 export async function fetchAvailableUpdate(input: {
   manifestUrl?: string | null;
   current?: LinxAppVersion;
+  nativeAppInfo?: NativeAppInfoModule | null;
   fetchImpl?: typeof fetch;
 }): Promise<LinxAvailableUpdate | null> {
   const manifestUrl = normalizeUpdateManifestUrl(input.manifestUrl ?? DEFAULT_UPDATE_MANIFEST_URL);
@@ -70,7 +77,46 @@ export async function fetchAvailableUpdate(input: {
   if (!response.ok) {
     throw new Error(`Update manifest request failed: ${response.status}`);
   }
-  return getAvailableUpdate(await response.json(), input.current ?? LINX_APP_VERSION);
+  const current = input.current ?? await getCurrentAppVersion(input.nativeAppInfo);
+  return getAvailableUpdate(await response.json(), current);
+}
+
+export async function getCurrentAppVersion(
+  nativeAppInfo: NativeAppInfoModule | null | undefined =
+    NativeModules.LinxAppInfo as NativeAppInfoModule | undefined,
+): Promise<LinxAppVersion> {
+  if (!nativeAppInfo?.getVersion) {
+    return LINX_APP_VERSION;
+  }
+
+  try {
+    const version = await nativeAppInfo.getVersion();
+    return normalizeNativeAppVersion(version) ?? LINX_APP_VERSION;
+  } catch {
+    return LINX_APP_VERSION;
+  }
+}
+
+function normalizeNativeAppVersion(value: unknown): LinxAppVersion | null {
+  const candidate = value as {
+    versionName?: unknown;
+    buildNumber?: unknown;
+    versionCode?: unknown;
+  };
+  const buildNumber = typeof candidate?.buildNumber === 'number'
+    ? candidate.buildNumber
+    : candidate?.versionCode;
+  if (
+    typeof candidate?.versionName !== 'string' ||
+    typeof buildNumber !== 'number' ||
+    !Number.isFinite(buildNumber)
+  ) {
+    return null;
+  }
+  return {
+    versionName: candidate.versionName,
+    buildNumber,
+  };
 }
 
 function isValidManifest(value: unknown): value is LinxUpdateManifest {

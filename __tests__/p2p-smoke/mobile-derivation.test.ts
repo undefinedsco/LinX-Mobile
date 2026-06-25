@@ -208,6 +208,27 @@ test('derives smoke defaults from a user-deployed local SP URL while keeping clo
   });
 });
 
+test('derives embedded smoke defaults from the current chat session', () => {
+  const { p2pSmokeDefaultsFromSession } = require('../../src/p2p-smoke/p2pSmokeDefaultsFromSession');
+
+  expect(p2pSmokeDefaultsFromSession({
+    issuerUrl: 'https://id.undefineds.co/',
+    clientId: 'client',
+    webId: 'https://id.undefineds.co/alice/profile/card#me',
+    accessToken: 'token',
+    refreshToken: 'refresh',
+    accessTokenExpirationDate: '2099-01-01T00:00:00.000Z',
+    storageServerUrl: 'https://node-0000.undefineds.co/',
+  })).toEqual({
+    idpUrl: 'https://id.undefineds.co/',
+    storageUrl: 'https://node-0000.undefineds.co/alice/',
+    localSpUrl: 'https://node-0000.undefineds.co/alice/',
+    apiBaseUrl: 'https://api.undefineds.co/',
+    nodeId: 'node-0000',
+    resourcePath: '.data/linx-mobile-p2p-smoke.txt',
+  });
+});
+
 test('rejects unsupported user-in-host shorthand for local SP URL', () => {
   const { deriveP2PSmokeDefaultsFromLocalStorageUrl } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
 

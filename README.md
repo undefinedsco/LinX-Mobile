@@ -300,9 +300,20 @@ override.
 
 ## P2P Smoke Mobile Validation
 
-The React Native host includes a separate P2P smoke entry for validating the
-non-browser Xpod P2P data plane. This entry is only a validation surface; it
-does not replace the product chat entry.
+The product chat entry embeds the P2P smoke validation panel so the same
+Pgyer-distributed product package can be used for chat and P2P acceptance.
+After login, open `Chats` -> `P2P Smoke`. The panel derives the Local SP URL
+from the current chat session when a custom SP server was selected at login.
+
+The current Pgyer Android package is the product package:
+
+- download page: `https://www.pgyer.com/linxmobile`
+- app package: `com.linxmobile`
+- validation entry: `Chats` -> `P2P Smoke`
+
+The repository still keeps a separate debug-only P2P smoke entry for automated
+USB/logcat workflows and lower-level bridge debugging. That entry is not the
+normal distribution path.
 
 Android defines a separate debug validation package:
 
@@ -399,9 +410,11 @@ The smoke screen intentionally asks only for user-facing configuration:
 - resource path to write/read.
 - client id, so the phone result can be matched with the node-side accept runner.
 
-Tap `Login to IDP` first. The app uses the configured IDP for OIDC login and
-then reuses the on-device Solid access token for the signal session and
-canonical Solid HTTP frames. Users do not type signal tokens into the smoke UI.
+In the product chat panel, the smoke reuses the current chat login. In the
+standalone debug smoke entry, tap `Login to IDP` first. The app uses the
+configured IDP for OIDC login and then reuses the on-device Solid access token
+for the signal session and canonical Solid HTTP frames. Users do not type
+signal tokens into the smoke UI.
 
 The smoke app does not ask for client host/address. The mobile client sends
 port-only raw TCP candidates and the Xpod signal service injects the observed
@@ -472,10 +485,15 @@ log-capture channel.
 
 ### Automatic update prompt
 
-The React Native product entry and the P2P smoke entry both mount a lightweight
-automatic update prompt. It is disabled unless an update manifest URL is
-supplied, so local and validation builds do not depend on a hardcoded release
-endpoint.
+The React Native product entry mounts a lightweight automatic update prompt.
+The implementation is manifest-driven: it can recognize newer builds only when
+an update manifest URL is supplied. The current Pgyer workflow uploads the APK
+to Pgyer, but it does not yet publish a public `update.json`, so installed
+Pgyer builds do not automatically discover newer versions inside the app by
+default. Users can still scan/open the Pgyer page to install the latest package.
+On Android, the comparison uses the native package `versionCode` exposed by
+`LinxAppInfo`, so workflow-assigned Pgyer build numbers do not depend on a
+hardcoded JavaScript constant.
 
 Manifest shape:
 

@@ -3,6 +3,7 @@ import path from 'path';
 import {
   LINX_APP_VERSION,
   getAvailableUpdate,
+  getCurrentAppVersion,
   normalizeUpdateManifestUrl,
   type LinxUpdateManifest,
 } from '../src/linx/update/updateManifest';
@@ -46,6 +47,27 @@ test('normalizes empty update manifest config as disabled', () => {
   expect(normalizeUpdateManifestUrl('   ')).toBeNull();
   expect(normalizeUpdateManifestUrl('https://downloads.undefineds.co/linx-mobile/update.json')).toBe(
     'https://downloads.undefineds.co/linx-mobile/update.json',
+  );
+});
+
+test('uses native app version when available for update detection', async () => {
+  await expect(getCurrentAppVersion({
+    getVersion: jest.fn(async () => ({
+      versionName: '1.0.1',
+      buildNumber: 5,
+    })),
+  })).resolves.toEqual({
+    versionName: '1.0.1',
+    buildNumber: 5,
+  });
+});
+
+test('android exposes native app version for automatic update checks', () => {
+  expect(read('android/app/src/main/java/com/linxmobile/LinxAppInfoModule.kt')).toContain(
+    'getVersion',
+  );
+  expect(read('android/app/src/main/java/com/linxmobile/p2p/XpodP2PSmokePackage.kt')).toContain(
+    'LinxAppInfoModule',
   );
 });
 

@@ -26,6 +26,31 @@ jest.mock('../src/linx/chat/useLinxChatApp', () => ({
   useLinxChatApp: jest.fn(),
 }));
 
+jest.mock('../src/p2p-smoke/P2PSmokeScreen', () => {
+  const ReactMock = require('react');
+  const { Text: MockText, TextInput: MockTextInput, View: MockView } = require('react-native');
+  return {
+    P2PSmokeScreen: ({
+      initialSession,
+      initialSmokeDefaults,
+    }: {
+      initialSession?: unknown;
+      initialSmokeDefaults?: { storageUrl?: string };
+    }) =>
+      ReactMock.createElement(
+        MockView,
+        null,
+        ReactMock.createElement(MockText, null, 'LinX P2P Smoke'),
+        ReactMock.createElement(MockTextInput, {
+          value: initialSmokeDefaults?.storageUrl,
+        }),
+        initialSession
+          ? ReactMock.createElement(MockText, null, 'Using current chat login')
+          : null,
+      ),
+  };
+});
+
 const mockedUseLinxChatApp = useLinxChatApp as jest.MockedFunction<
   typeof useLinxChatApp
 >;
@@ -156,6 +181,54 @@ test('renders chat screen after restore', async () => {
   });
 
   expect(renderer!.root.findByProps({ children: 'Saved Thread' })).toBeTruthy();
+  await ReactTestRenderer.act(async () => {
+    renderer!.unmount();
+  });
+});
+
+test('chat sheet exposes embedded P2P smoke validation from the product app', async () => {
+  mockedUseLinxChatApp.mockReturnValue(
+    makeAppState({
+      phase: 'ready',
+      session: {
+        issuerUrl: 'https://id.undefineds.co/',
+        clientId: 'client',
+        webId: 'https://id.undefineds.co/alice/profile/card#me',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        accessTokenExpirationDate: new Date(Date.now() + 60_000).toISOString(),
+        storageServerUrl: 'https://node-0000.undefineds.co/',
+      },
+      selectedThread: {
+        id: 'thread-1',
+        title: 'Saved Thread',
+        createdAt: '1970-01-01T00:00:00.000Z',
+        updatedAt: '1970-01-01T00:00:00.000Z',
+      },
+    }),
+  );
+
+  let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<App />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ accessibilityLabel: 'Show chats' }).props.onPress();
+  });
+  expect(renderer!.root.findByProps({ testID: 'open-p2p-smoke-button' })).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    renderer!.root.findByProps({ testID: 'open-p2p-smoke-button' }).props.onPress();
+  });
+
+  expect(renderer!.root.findByProps({ children: 'LinX P2P Smoke' })).toBeTruthy();
+  expect(renderer!.root.findByProps({ children: 'Back to chat' })).toBeTruthy();
+  expect(renderer!.root.findByProps({
+    value: 'https://node-0000.undefineds.co/alice/',
+  })).toBeTruthy();
+  expect(renderer!.root.findByProps({ children: 'Using current chat login' })).toBeTruthy();
+
   await ReactTestRenderer.act(async () => {
     renderer!.unmount();
   });

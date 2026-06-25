@@ -18,6 +18,7 @@ interface ThreadListSheetProps {
   onClose: () => void;
   onSelectThread: (thread: LinxThreadSummary) => void;
   onNewChat: () => void;
+  onOpenP2PSmoke: () => void;
   onLogout: () => void;
 }
 
@@ -95,6 +96,7 @@ export function ThreadListSheet({
   onClose,
   onSelectThread,
   onNewChat,
+  onOpenP2PSmoke,
   onLogout,
 }: ThreadListSheetProps) {
   const colors = linxColors(isDark);
@@ -140,6 +142,19 @@ export function ThreadListSheet({
             ]}>
             <Text style={[styles.newChatText, { color: LinxPalette.accent }]}>
               New chat
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenP2PSmoke}
+            style={({ pressed }) => [
+              styles.newChatButton,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              pressed && styles.pressed,
+            ]}
+            testID="open-p2p-smoke-button">
+            <Text style={[styles.newChatText, { color: LinxPalette.accent }]}>
+              P2P Smoke
             </Text>
           </Pressable>
         </View>
@@ -205,6 +220,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   newChatWrap: {
+    gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },

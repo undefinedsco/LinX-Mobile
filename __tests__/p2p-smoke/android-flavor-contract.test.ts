@@ -15,7 +15,18 @@ test('keeps product app entry while adding a separate p2pSmoke package', () => {
 
   const productApp = read('App.tsx');
   expect(productApp).toContain('useLinxChatApp');
-  expect(productApp).not.toContain('P2PSmokeScreen');
+});
+
+test('product chat embeds p2p smoke so the single pgyer product package can validate p2p', () => {
+  const chatScreen = read('src/linx/ui/ChatScreen.tsx');
+  const threadSheet = read('src/linx/ui/ThreadListSheet.tsx');
+  const pgyerWorkflow = read('.github/workflows/android-pgyer.yml');
+
+  expect(chatScreen).toContain('P2PSmokeScreen');
+  expect(chatScreen).toContain('p2pSmokeDefaultsFromSession');
+  expect(threadSheet).toContain('open-p2p-smoke-button');
+  expect(pgyerWorkflow).toContain(':app:assembleProductRelease');
+  expect(pgyerWorkflow).toContain('android/app/build/outputs/apk/product/release');
 });
 
 test('p2p smoke package has its own RN entry and native tcp bridge', () => {

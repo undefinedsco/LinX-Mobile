@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -35,9 +35,13 @@ export interface P2PSmokeDefaults {
 }
 
 export function P2PSmokeScreen({
+  embeddedInChat = false,
   initialSmokeDefaults,
+  initialSession,
 }: {
+  embeddedInChat?: boolean;
   initialSmokeDefaults?: P2PSmokeDefaults;
+  initialSession?: LinxAuthSession | null;
 }) {
   const [idpUrl, setIdpUrl] = useState(initialSmokeDefaults?.idpUrl ?? DEFAULT_IDP);
   const [storageUrl, setStorageUrl] = useState(initialSmokeDefaults?.storageUrl ?? DEFAULT_SP);
@@ -48,9 +52,15 @@ export function P2PSmokeScreen({
   const [clientId, setClientId] = useState(initialSmokeDefaults?.clientId ?? DEFAULT_CLIENT_ID);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [session, setSession] = useState<LinxAuthSession | null>(null);
+  const [session, setSession] = useState<LinxAuthSession | null>(initialSession ?? null);
   const [result, setResult] = useState<P2PSmokeEvidence | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialSession) {
+      setSession(initialSession);
+    }
+  }, [initialSession]);
 
   const applyLocalSpUrl = () => {
     setError(null);
@@ -90,6 +100,7 @@ export function P2PSmokeScreen({
         apiBaseUrl: apiBaseUrl.trim() || undefined,
         nodeId: nodeId.trim() || undefined,
         clientId: clientId.trim() || DEFAULT_CLIENT_ID,
+        token: session?.accessToken,
       });
       setResult(evidence);
     } catch (caught) {
@@ -118,7 +129,9 @@ export function P2PSmokeScreen({
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>LinX P2P Smoke</Text>
       <Text style={styles.description}>
-        Standalone validation build. Product chat remains in the normal LinXMobile package.
+        {embeddedInChat
+          ? 'Validation panel inside LinX chat. Use it to verify the current product package can reach your local SP through Xpod P2P.'
+          : 'Standalone validation build. Product chat remains in the normal LinXMobile package.'}
       </Text>
 
       <Field
@@ -142,16 +155,22 @@ export function P2PSmokeScreen({
         <Text selectable style={styles.derivedText}>{`apiBaseUrl: ${apiBaseUrl || '(derived from IDP)'}`}</Text>
         <Text selectable style={styles.derivedText}>{`nodeId: ${nodeId || '(derived from SP)'}`}</Text>
       </View>
-      <Pressable
-        accessibilityRole="button"
-        disabled={isLoggingIn || isRunning}
-        onPress={login}
-        style={[styles.secondaryButton, (isLoggingIn || isRunning) && styles.buttonDisabled]}>
-        {isLoggingIn ? <ActivityIndicator color="#0d7568" /> : null}
-        <Text style={styles.secondaryButtonText}>
-          {isLoggingIn ? 'Logging in...' : 'Login to IDP'}
-        </Text>
-      </Pressable>
+      {initialSession ? (
+        <View style={styles.sessionBox}>
+          <Text style={styles.sessionState}>Using current chat login</Text>
+        </View>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          disabled={isLoggingIn || isRunning}
+          onPress={login}
+          style={[styles.secondaryButton, (isLoggingIn || isRunning) && styles.buttonDisabled]}>
+          {isLoggingIn ? <ActivityIndicator color="#0d7568" /> : null}
+          <Text style={styles.secondaryButtonText}>
+            {isLoggingIn ? 'Logging in...' : 'Login to IDP'}
+          </Text>
+        </Pressable>
+      )}
       {session?.webId ? (
         <Text selectable style={styles.session}>
           {`Logged in: ${session.webId}`}
@@ -276,6 +295,18 @@ const styles = StyleSheet.create({
     color: '#42534e',
     fontSize: 12,
     lineHeight: 18,
+  },
+  sessionBox: {
+    backgroundColor: '#f5faf7',
+    borderColor: '#dbe7e1',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
+  },
+  sessionState: {
+    color: '#0d7568',
+    fontSize: 13,
+    fontWeight: '800',
   },
   error: {
     color: '#b42318',

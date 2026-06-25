@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,6 +16,8 @@ import {
 import Markdown from 'react-native-markdown-display';
 import type { LinxChatAppState } from '../chat/useLinxChatApp';
 import type { LinxChatMessage } from '../types';
+import { P2PSmokeScreen } from '../../p2p-smoke/P2PSmokeScreen';
+import { p2pSmokeDefaultsFromSession } from '../../p2p-smoke/p2pSmokeDefaultsFromSession';
 import { LinxPalette, linxColors } from './LinxPalette';
 import { ThreadListSheet } from './ThreadListSheet';
 
@@ -116,6 +119,7 @@ export function ChatScreen(props: ChatScreenProps) {
   const colors = linxColors(isDark);
   const [draft, setDraft] = useState('');
   const [showThreads, setShowThreads] = useState(false);
+  const [showP2PSmoke, setShowP2PSmoke] = useState(false);
   const listRef = useRef<FlatList<LinxChatMessage>>(null);
   const lastMessageId = props.messages[props.messages.length - 1]?.id;
   const lastScrolledMessageId = useRef<string | undefined>(undefined);
@@ -325,6 +329,10 @@ export function ChatScreen(props: ChatScreenProps) {
           setShowThreads(false);
           ignorePromise(props.newChat());
         }}
+        onOpenP2PSmoke={() => {
+          setShowThreads(false);
+          setShowP2PSmoke(true);
+        }}
         onSelectThread={thread => {
           setShowThreads(false);
           ignorePromise(props.selectThread(thread));
@@ -333,6 +341,35 @@ export function ChatScreen(props: ChatScreenProps) {
         threads={props.threads}
         visible={showThreads}
       />
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setShowP2PSmoke(false)}
+        visible={showP2PSmoke}>
+        <View style={[styles.p2pModal, { backgroundColor: colors.background }]}>
+          <View
+            style={[
+              styles.p2pHeader,
+              {
+                backgroundColor: colors.backgroundAlt,
+                borderBottomColor: colors.border,
+              },
+            ]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowP2PSmoke(false)}
+              style={styles.p2pBackButton}>
+              <Text style={[styles.headerButtonText, { color: LinxPalette.accent }]}>
+                Back to chat
+              </Text>
+            </Pressable>
+          </View>
+          <P2PSmokeScreen
+            embeddedInChat
+            initialSession={props.session}
+            initialSmokeDefaults={p2pSmokeDefaultsFromSession(props.session)}
+          />
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -573,5 +610,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '900',
+  },
+  p2pModal: {
+    flex: 1,
+  },
+  p2pHeader: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingTop: 52,
+    paddingBottom: 10,
+  },
+  p2pBackButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
 });
