@@ -104,7 +104,7 @@ export class LinxAuthController implements TokenProvider {
     }
   }
 
-  async login(): Promise<LinxAuthSession> {
+  async login(options: { storageServerUrl?: string } = {}): Promise<LinxAuthSession> {
     const issuerUrl = this.issuerOrigin;
     const discovery = await discoverOIDC(issuerUrl);
     if (!discovery.registration_endpoint) {
@@ -149,6 +149,7 @@ export class LinxAuthController implements TokenProvider {
       refreshToken: authResult.refreshToken,
       accessTokenExpirationDate: authResult.accessTokenExpirationDate,
       idToken: authResult.idToken,
+      ...(options.storageServerUrl ? { storageServerUrl: options.storageServerUrl } : {}),
     };
     this.session = session;
     await saveAuthSession(session);

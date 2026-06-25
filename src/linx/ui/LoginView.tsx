@@ -22,12 +22,16 @@ export function LoginView({ isBusy, errorMessage, onLogin }: LoginViewProps) {
   const isDark = useColorScheme() === 'dark';
   const colors = linxColors(isDark);
   const [showStorageSettings, setShowStorageSettings] = useState(false);
-  const [useCustomStorage, setUseCustomStorage] = useState(false);
-  const [customStorageUrl, setCustomStorageUrl] = useState('');
-  const issuerUrl = `${LINX_CONTRACT.issuerOrigin}/`;
-  const loginOptions: LinxLoginOptions | undefined = useCustomStorage
-    ? { storageServerUrl: customStorageUrl }
-    : undefined;
+  const [storageMode, setStorageMode] = useState<'auto' | 'custom'>('auto');
+  const [customSpServerUrl, setCustomSpServerUrl] = useState('');
+
+  const submitLogin = () => {
+    onLogin(
+      storageMode === 'custom'
+        ? { storageServerUrl: customSpServerUrl.trim() }
+        : undefined,
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -53,76 +57,6 @@ export function LoginView({ isBusy, errorMessage, onLogin }: LoginViewProps) {
             Pod-backed history
           </Text>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          disabled={isBusy}
-          onPress={() => setShowStorageSettings(current => !current)}
-          style={({ pressed }) => [
-            styles.settingsToggle,
-            { borderColor: colors.border },
-            pressed && styles.settingsTogglePressed,
-            isBusy && styles.buttonDisabled,
-          ]}
-          testID="storage-settings-toggle">
-          <Text style={[styles.settingsToggleText, { color: colors.secondaryText }]}>
-            {showStorageSettings ? 'Hide storage settings' : 'Storage settings'}
-          </Text>
-        </Pressable>
-        {showStorageSettings ? (
-          <View
-            style={[
-              styles.storagePanel,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <Text style={[styles.storageLabel, { color: colors.secondaryText }]}>Provider / IDP</Text>
-            <Text style={[styles.storageValue, { color: colors.text }]}>{issuerUrl}</Text>
-            <Text style={[styles.storageHelp, { color: colors.secondaryText }]}>Storage server</Text>
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: !useCustomStorage }}
-              onPress={() => setUseCustomStorage(false)}
-              style={[
-                styles.storageOption,
-                !useCustomStorage && styles.storageOptionSelected,
-                { borderColor: colors.border },
-              ]}
-              testID="storage-auto-option">
-              <Text style={[styles.storageOptionText, { color: colors.text }]}>Auto discover from WebID</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: useCustomStorage }}
-              onPress={() => setUseCustomStorage(true)}
-              style={[
-                styles.storageOption,
-                useCustomStorage && styles.storageOptionSelected,
-                { borderColor: colors.border },
-              ]}
-              testID="storage-custom-option">
-              <Text style={[styles.storageOptionText, { color: colors.text }]}>Custom SP URL</Text>
-            </Pressable>
-            {useCustomStorage ? (
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isBusy}
-                keyboardType="url"
-                onChangeText={setCustomStorageUrl}
-                placeholder="https://node-0000.undefineds.co/"
-                placeholderTextColor={colors.secondaryText}
-                style={[
-                  styles.storageInput,
-                  {
-                    borderColor: colors.border,
-                    color: colors.text,
-                  },
-                ]}
-                testID="custom-sp-url-input"
-                value={customStorageUrl}
-              />
-            ) : null}
-          </View>
-        ) : null}
         {errorMessage ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {errorMessage}
@@ -130,14 +64,78 @@ export function LoginView({ isBusy, errorMessage, onLogin }: LoginViewProps) {
         ) : null}
         <Pressable
           accessibilityRole="button"
+          testID="storage-settings-toggle"
           disabled={isBusy}
-          onPress={() => onLogin(loginOptions)}
+          onPress={() => setShowStorageSettings(current => !current)}
+          style={({ pressed }) => [
+            styles.settingsToggle,
+            { borderColor: colors.border, backgroundColor: colors.surface },
+            pressed && styles.settingsTogglePressed,
+            isBusy && styles.buttonDisabled,
+          ]}>
+          <Text style={[styles.settingsToggleText, { color: colors.text }]}>⚙ Storage settings</Text>
+        </Pressable>
+        {showStorageSettings ? (
+          <View style={[styles.settingsPanel, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Text style={[styles.settingsLabel, { color: colors.text }]}>Provider / IDP</Text>
+            <Text style={[styles.settingsValue, { color: colors.secondaryText }]}>{`${LINX_CONTRACT.issuerOrigin}/`}</Text>
+            <Text style={[styles.settingsLabel, { color: colors.text }]}>Storage / SP</Text>
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityState={{ selected: storageMode === 'auto' }}
+              testID="storage-auto-option"
+              disabled={isBusy}
+              onPress={() => setStorageMode('auto')}
+              style={styles.radioRow}>
+              <Text style={[styles.radioText, { color: colors.secondaryText }]}>Auto discover from WebID</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityState={{ selected: storageMode === 'custom' }}
+              testID="storage-custom-option"
+              disabled={isBusy}
+              onPress={() => setStorageMode('custom')}
+              style={styles.radioRow}>
+              <Text style={[styles.radioText, { color: colors.secondaryText }]}>Custom SP URL</Text>
+            </Pressable>
+            {storageMode === 'custom' ? (
+              <>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isBusy}
+                  keyboardType="url"
+                  onChangeText={setCustomSpServerUrl}
+                  placeholder="https://node-0000.undefineds.co/"
+                  placeholderTextColor={colors.tertiaryText}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: colors.input,
+                      borderColor: colors.border,
+                      color: colors.text,
+                    },
+                  ]}
+                  testID="custom-sp-url-input"
+                  value={customSpServerUrl}
+                />
+                <Text style={[styles.helperText, { color: colors.tertiaryText }]}>
+                  Enter the SP server root only. The pod path is derived after cloud login from your WebID.
+                </Text>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          testID="login-button"
+          disabled={isBusy}
+          onPress={submitLogin}
           style={({ pressed }) => [
             styles.button,
             pressed && styles.buttonPressed,
             isBusy && styles.buttonDisabled,
-          ]}
-          testID="login-button">
+          ]}>
           {isBusy ? <ActivityIndicator color="#fff" /> : null}
           <Text style={styles.buttonText}>
             {isBusy ? 'Connecting...' : 'Continue with LinX Cloud'}
@@ -198,67 +196,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  settingsToggle: {
-    alignSelf: 'flex-start',
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  settingsTogglePressed: {
-    opacity: 0.72,
-  },
-  settingsToggleText: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  storagePanel: {
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    padding: 14,
-  },
-  storageLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  storageValue: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  storageHelp: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  storageOption: {
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  storageOptionSelected: {
-    backgroundColor: 'rgba(13, 107, 95, 0.08)',
-  },
-  storageOptionText: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  storageInput: {
-    borderRadius: 10,
-    borderWidth: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
   error: {
     color: LinxPalette.warning,
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  settingsToggle: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  settingsTogglePressed: {
+    opacity: 0.86,
+  },
+  settingsToggleText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  settingsPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  settingsLabel: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  settingsValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  radioRow: {
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  radioText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  helperText: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  input: {
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
   button: {
     alignItems: 'center',

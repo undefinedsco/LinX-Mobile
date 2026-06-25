@@ -437,10 +437,7 @@ export function useLinxChatApp(): LinxChatAppState {
     setIsUsingCachedFallback(false);
     try {
       const storageServerUrl = normalizeCustomStorageServerUrl(options.storageServerUrl);
-      const loggedInSession = await authController.login();
-      const nextSession = storageServerUrl
-        ? { ...loggedInSession, storageServerUrl }
-        : loggedInSession;
+      const nextSession = await authController.login({ storageServerUrl });
       await bootstrap(nextSession);
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));

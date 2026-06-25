@@ -31,7 +31,12 @@ export async function loadAuthSession(): Promise<LinxAuthSession | null> {
     ) {
       return null;
     }
-    return parsed as LinxAuthSession;
+    return {
+      ...(parsed as LinxAuthSession),
+      ...(typeof parsed.storageServerUrl === 'string'
+        ? { storageServerUrl: parsed.storageServerUrl }
+        : {}),
+    };
   } catch {
     return null;
   }

@@ -285,6 +285,19 @@ xcodebuild test \
 - Do not hardcode tokens or user-specific WebIDs.
 - Preserve Swift 6 strict concurrency compatibility in the native Apple app.
 
+## Product Login Storage Settings
+
+The product app always logs in through the LinX Cloud IDP/provider
+(`https://id.undefineds.co/`). The optional storage setting is only a data-plane
+override.
+
+- Default: `Auto discover from WebID`.
+- Custom SP: enter the SP server root, for example
+  `https://node-0000.undefineds.co/`.
+- Do not enter a user/pod path such as `https://node-0000.undefineds.co/alice/`
+  before login. The app derives that path after login from the WebID.
+- Do not use user-in-host shorthand such as `alice.node-0000.undefineds.co`.
+
 ## P2P Smoke Mobile Validation
 
 The React Native host includes a separate P2P smoke entry for validating the
