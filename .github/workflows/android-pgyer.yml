@@ -138,11 +138,24 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;27.1.12297006"
+          installed=false
+          for attempt in 1 2 3; do
+            if sdkmanager \
+              "platform-tools" \
+              "platforms;android-36" \
+              "build-tools;36.0.0" \
+              "ndk;27.1.12297006"; then
+              installed=true
+              break
+            fi
+            echo "sdkmanager failed on attempt ${attempt}; clearing partial NDK download before retry"
+            rm -rf "$ANDROID_HOME/.temp" "$ANDROID_HOME/ndk/27.1.12297006"
+            sleep $((attempt * 10))
+          done
+          if [ "$installed" != "true" ]; then
+            echo "error: failed to install Android SDK packages after retries" >&2
+            exit 1
+          fi
 
       - name: Install JavaScript dependencies
         run: npm ci
