@@ -22,7 +22,7 @@ test('android p2p launcher dry-run prints install and prefilled start commands w
     '--client-id',
     'phone-1',
     '--resource-path',
-    '/alice/.data/linx-mobile-p2p-smoke.txt',
+    '.data/linx-mobile-p2p-smoke.txt',
   ], { cwd: root, timeout: 8_000 });
 
   expect(stdout).toContain('DRY RUN');
@@ -32,7 +32,7 @@ test('android p2p launcher dry-run prints install and prefilled start commands w
   expect(stdout).toContain('--es xpod.p2p.idpUrl https://id.undefineds.co/');
   expect(stdout).toContain('--es xpod.p2p.storageUrl https://node-0000.undefineds.co/');
   expect(stdout).toContain('--es xpod.p2p.clientId phone-1');
-  expect(stdout).toContain('--es xpod.p2p.resourcePath /alice/.data/linx-mobile-p2p-smoke.txt');
+  expect(stdout).toContain('--es xpod.p2p.resourcePath .data/linx-mobile-p2p-smoke.txt');
 });
 
 test('android p2p launcher can dry-run result capture from the native log marker', async () => {
@@ -109,12 +109,12 @@ test('android p2p launcher can prefill the local SP URL without changing the clo
     '--skip-build',
     '--skip-install',
     '--local-sp-url',
-    'https://node-0000.undefineds.co/alice/',
+    'https://node-0000.undefineds.co/',
     '--client-id',
     'phone-local',
   ], { cwd: root, timeout: 8_000 });
 
-  expect(stdout).toContain('--es xpod.p2p.localSpUrl https://node-0000.undefineds.co/alice/');
+  expect(stdout).toContain('--es xpod.p2p.localSpUrl https://node-0000.undefineds.co/');
   expect(stdout).toContain('--es xpod.p2p.idpUrl https://id.undefineds.co/');
   expect(stdout).toContain('--es xpod.p2p.clientId phone-local');
 });

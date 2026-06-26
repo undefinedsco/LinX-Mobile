@@ -1,5 +1,6 @@
 import { resolvePodBaseUrl } from '../linx/pod/paths';
 import type { LinxAuthSession } from '../linx/types';
+import { ensureTrailingSlash } from '../linx/utils';
 import {
   DEFAULT_SMOKE_RESOURCE_PATH_INPUT,
   deriveApiBaseUrlFromIdp,
@@ -18,11 +19,14 @@ export function p2pSmokeDefaultsFromSession(
     webId: session.webId,
     storageServerUrl: session.storageServerUrl,
   });
+  const localSpUrl = session.storageServerUrl
+    ? ensureTrailingSlash(session.storageServerUrl)
+    : `${new URL(storageUrl).origin}/`;
 
   return {
     idpUrl: session.issuerUrl,
     storageUrl,
-    localSpUrl: storageUrl,
+    localSpUrl,
     apiBaseUrl: deriveApiBaseUrlFromIdp(session.issuerUrl),
     nodeId: deriveNodeIdFromStorageUrl(storageUrl),
     resourcePath: DEFAULT_SMOKE_RESOURCE_PATH_INPUT,

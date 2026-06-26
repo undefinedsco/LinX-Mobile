@@ -107,7 +107,7 @@ test('runP2PSmoke obtains bearer token from the mobile auth session when token i
 test('p2p smoke screen lets the user login through IDP before running smoke', () => {
   const screen = readSource('src/p2p-smoke/P2PSmokeScreen.tsx');
   expect(screen).toContain('createP2PSmokeAuthController(idpUrl)');
-  expect(screen).toContain('.login()');
+  expect(screen).toContain('.login({ storageServerUrl })');
   expect(screen).toContain('Login to IDP');
   expect(screen).toContain('session?.webId');
 });
@@ -196,16 +196,29 @@ test('runP2PSmoke preserves explicit token injection for automation', async () =
   expect(nativeRun.mock.calls[0][0].token).toBe('automation-token');
 });
 
-test('derives smoke defaults from a user-deployed local SP URL while keeping cloud IDP/provider', () => {
-  const { deriveP2PSmokeDefaultsFromLocalStorageUrl } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
+test('derives smoke defaults from a user-deployed SP server root and cloud WebID', () => {
+  const { deriveP2PSmokeDefaultsFromLocalSpServerRoot } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
 
-  expect(deriveP2PSmokeDefaultsFromLocalStorageUrl('https://node-0000.undefineds.co/alice/')).toEqual({
+  expect(deriveP2PSmokeDefaultsFromLocalSpServerRoot({
+    localSpServerUrl: 'https://node-0000.undefineds.co/',
+    webId: 'https://id.undefineds.co/alice/profile/card#me',
+  })).toEqual({
     idpUrl: 'https://id.undefineds.co/',
     storageUrl: 'https://node-0000.undefineds.co/alice/',
+    localSpUrl: 'https://node-0000.undefineds.co/',
     apiBaseUrl: 'https://api.undefineds.co/',
     nodeId: 'node-0000',
     resourcePath: '.data/linx-mobile-p2p-smoke.txt',
   });
+});
+
+test('rejects a pod path in the local SP server root', () => {
+  const { deriveP2PSmokeDefaultsFromLocalSpServerRoot } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
+
+  expect(() => deriveP2PSmokeDefaultsFromLocalSpServerRoot({
+    localSpServerUrl: 'https://node-0000.undefineds.co/alice/',
+    webId: 'https://id.undefineds.co/alice/profile/card#me',
+  })).toThrow('SP server root must not include a pod path');
 });
 
 test('derives embedded smoke defaults from the current chat session', () => {
@@ -222,25 +235,28 @@ test('derives embedded smoke defaults from the current chat session', () => {
   })).toEqual({
     idpUrl: 'https://id.undefineds.co/',
     storageUrl: 'https://node-0000.undefineds.co/alice/',
-    localSpUrl: 'https://node-0000.undefineds.co/alice/',
+    localSpUrl: 'https://node-0000.undefineds.co/',
     apiBaseUrl: 'https://api.undefineds.co/',
     nodeId: 'node-0000',
     resourcePath: '.data/linx-mobile-p2p-smoke.txt',
   });
 });
 
-test('rejects unsupported user-in-host shorthand for local SP URL', () => {
-  const { deriveP2PSmokeDefaultsFromLocalStorageUrl } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
+test('rejects unsupported user-in-host shorthand for local SP server root', () => {
+  const { deriveP2PSmokeDefaultsFromLocalSpServerRoot } = require('../../src/p2p-smoke/deriveP2PSmokeTarget');
 
-  expect(() => deriveP2PSmokeDefaultsFromLocalStorageUrl('alice.node-0000.undefineds.co')).toThrow(
+  expect(() => deriveP2PSmokeDefaultsFromLocalSpServerRoot({
+    localSpServerUrl: 'alice.node-0000.undefineds.co',
+    webId: 'https://id.undefineds.co/alice/profile/card#me',
+  })).toThrow(
     'user-in-host shorthand is not supported',
   );
 });
 
-test('p2p smoke screen exposes local SP URL input and applies derived fields', () => {
+test('p2p smoke screen exposes local SP server root input and applies derived fields', () => {
   const screen = readSource('src/p2p-smoke/P2PSmokeScreen.tsx');
-  expect(screen).toContain('Local SP URL');
-  expect(screen).toContain('deriveP2PSmokeDefaultsFromLocalStorageUrl');
+  expect(screen).toContain('Local SP server root');
+  expect(screen).toContain('deriveP2PSmokeDefaultsFromLocalSpServerRoot');
   expect(screen).toContain('Apply local SP');
   expect(screen).toContain('apiBaseUrl');
   expect(screen).toContain('nodeId');

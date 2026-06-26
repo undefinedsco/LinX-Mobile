@@ -302,8 +302,10 @@ override.
 
 The product chat entry embeds the P2P smoke validation panel so the same
 Pgyer-distributed product package can be used for chat and P2P acceptance.
-After login, open `Chats` -> `P2P Smoke`. The panel derives the Local SP URL
-from the current chat session when a custom SP server was selected at login.
+After login, open `Chats` -> `P2P Smoke`. The panel shows the Local SP server
+root separately from the resolved SP storage/pod base. The storage path is
+derived from the logged-in WebID; model ids such as `linx-lite` are never used
+for URL construction.
 
 The current Pgyer Android package is the product package:
 
@@ -344,7 +346,7 @@ verifier-ready client JSON automatically:
 npm run p2p:android:launch -- \
   --adb /opt/homebrew/bin/adb \
   --adb-server-port 5041 \
-  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --local-sp-url https://node-0000.undefineds.co/ \
   --client-id phone-1 \
   --capture-result mobile-result.json \
   --skip-build
@@ -357,7 +359,7 @@ commands that will be executed:
 npm run p2p:android:launch -- \
   --adb /opt/homebrew/bin/adb \
   --adb-server-port 5041 \
-  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --local-sp-url https://node-0000.undefineds.co/ \
   --client-id phone-1 \
   --dry-run
 ```
@@ -383,7 +385,7 @@ For iOS, use Xcode on a true iPhone device:
 
    ```text
    --p2p-smoke
-   --local-sp-url https://node-0000.undefineds.co/alice/
+   --local-sp-url https://node-0000.undefineds.co/
    --client-id phone-1
    ```
 
@@ -400,13 +402,14 @@ cellular behavior.
 
 The smoke screen intentionally asks only for user-facing configuration:
 
-- Local SP URL, such as `https://node-0000.undefineds.co/alice/`. This is the
-  self-deployed/local data endpoint. User-in-host shorthand such as
-  `alice.node-0000.undefineds.co` is not supported.
+- Local SP server root, such as `https://node-0000.undefineds.co/`. This is
+  the self-deployed/local data endpoint root. Do not enter a user/pod path here,
+  and do not use user-in-host shorthand such as `alice.node-0000.undefineds.co`.
 - Cloud IDP provider, normally `https://id.undefineds.co/`. Local data does not
   imply a local IDP; login remains against the cloud provider.
-- SP/storage URL, normally derived from Local SP URL and used for Solid read/write
-  target construction and node id derivation.
+- SP/storage URL, derived from Local SP server root plus the logged-in WebID pod
+  path, and used for Solid read/write target construction. Node id is derived
+  from the SP server root host.
 - resource path to write/read.
 - client id, so the phone result can be matched with the node-side accept runner.
 
@@ -429,6 +432,7 @@ arguments so signal can inject observed addresses for port-only candidates:
 
 ```sh
 cd /Users/ganlu/develop/xpod
+POD_SLUG=gcloud # replace with the first path segment in your WebID
 bun run smoke:p2p:realnet -- plan \
   --api-base-url https://api.undefineds.co/ \
   --node-id node-0000 \
@@ -436,7 +440,7 @@ bun run smoke:p2p:realnet -- plan \
   --base-url https://node-0000.undefineds.co/ \
   --target-base-url http://127.0.0.1:3000/ \
   --client-id phone-1 \
-  --resource-url https://node-0000.undefineds.co/alice/.data/linx-mobile-p2p-smoke.txt
+  --resource-url "https://node-0000.undefineds.co/${POD_SLUG}/.data/linx-mobile-p2p-smoke.txt"
 ```
 
 Run the printed node command on the SP machine. Then run the mobile smoke app
@@ -463,6 +467,7 @@ app with adb extras, captures `mobile-result.json`, and runs the verifier:
 
 ```sh
 cd /Users/ganlu/develop/xpod
+POD_SLUG=gcloud # replace with the first path segment in your WebID
 bun run smoke:p2p:android-realnet -- \
   --linx-mobile-root /Users/ganlu/develop/linx-mobile \
   --api-base-url https://api.undefineds.co/ \
@@ -471,7 +476,7 @@ bun run smoke:p2p:android-realnet -- \
   --base-url https://node-0000.undefineds.co/ \
   --target-base-url http://127.0.0.1:3000/ \
   --client-id phone-1 \
-  --resource-url https://node-0000.undefineds.co/alice/.data/linx-mobile-p2p-smoke.txt \
+  --resource-url "https://node-0000.undefineds.co/${POD_SLUG}/.data/linx-mobile-p2p-smoke.txt" \
   --adb /opt/homebrew/bin/adb \
   --adb-server-port 5041 \
   --skip-build
@@ -516,7 +521,7 @@ For Android smoke launches, pass the manifest through adb extras:
 
 ```sh
 npm run p2p:android:launch -- \
-  --local-sp-url https://node-0000.undefineds.co/alice/ \
+  --local-sp-url https://node-0000.undefineds.co/ \
   --client-id phone-1 \
   --update-manifest-url https://downloads.undefineds.co/linx-mobile/update.json
 ```

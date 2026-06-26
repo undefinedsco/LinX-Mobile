@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import type { LinxAuthSession } from '../linx/types';
-import { deriveP2PSmokeDefaultsFromLocalStorageUrl } from './deriveP2PSmokeTarget';
+import { deriveP2PSmokeDefaultsFromLocalSpServerRoot } from './deriveP2PSmokeTarget';
 import {
   createP2PSmokeAuthController,
   formatP2PSmokeEvidenceForShare,
@@ -19,7 +19,7 @@ import {
 } from './mobileP2PSmoke';
 
 const DEFAULT_IDP = 'https://id.undefineds.co/';
-const DEFAULT_SP = 'https://node-0000.undefineds.co/alice/';
+const DEFAULT_SP = 'https://node-0000.undefineds.co/';
 const DEFAULT_RESOURCE_PATH = '.data/linx-mobile-p2p-smoke.txt';
 const DEFAULT_CLIENT_ID = `phone-${Math.floor(Date.now() / 1000)}`;
 
@@ -46,7 +46,7 @@ export function P2PSmokeScreen({
   const [idpUrl, setIdpUrl] = useState(initialSmokeDefaults?.idpUrl ?? DEFAULT_IDP);
   const [storageUrl, setStorageUrl] = useState(initialSmokeDefaults?.storageUrl ?? DEFAULT_SP);
   const [resourcePath, setResourcePath] = useState(initialSmokeDefaults?.resourcePath ?? DEFAULT_RESOURCE_PATH);
-  const [localSpUrl, setLocalSpUrl] = useState(initialSmokeDefaults?.localSpUrl ?? initialSmokeDefaults?.storageUrl ?? DEFAULT_SP);
+  const [localSpUrl, setLocalSpUrl] = useState(initialSmokeDefaults?.localSpUrl ?? DEFAULT_SP);
   const [apiBaseUrl, setApiBaseUrl] = useState(initialSmokeDefaults?.apiBaseUrl ?? '');
   const [nodeId, setNodeId] = useState(initialSmokeDefaults?.nodeId ?? '');
   const [clientId, setClientId] = useState(initialSmokeDefaults?.clientId ?? DEFAULT_CLIENT_ID);
@@ -63,18 +63,21 @@ export function P2PSmokeScreen({
     }
   }, [initialSession]);
 
-  const applyLocalSpUrl = () => {
+  const applyLocalSpUrl = (nextSession: LinxAuthSession | null = session) => {
     setError(null);
     setResult(null);
     try {
-      const derived = deriveP2PSmokeDefaultsFromLocalStorageUrl(localSpUrl || storageUrl);
+      const derived = deriveP2PSmokeDefaultsFromLocalSpServerRoot({
+        localSpServerUrl: localSpUrl || storageUrl,
+        webId: nextSession?.webId,
+      });
       setIdpUrl(derived.idpUrl);
       setStorageUrl(derived.storageUrl);
-      setLocalSpUrl(derived.storageUrl);
+      setLocalSpUrl(derived.localSpUrl);
       setApiBaseUrl(derived.apiBaseUrl);
       setNodeId(derived.nodeId);
       setResourcePath(derived.resourcePath);
-      setAppliedLocalSpUrl(derived.storageUrl);
+      setAppliedLocalSpUrl(derived.localSpUrl);
     } catch (caught) {
       setAppliedLocalSpUrl(null);
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -90,7 +93,12 @@ export function P2PSmokeScreen({
     setIsLoggingIn(true);
     setError(null);
     try {
-      setSession(await createP2PSmokeAuthController(idpUrl).login());
+      const storageServerUrl = deriveP2PSmokeDefaultsFromLocalSpServerRoot({
+        localSpServerUrl: localSpUrl || storageUrl,
+      }).localSpUrl;
+      const nextSession = await createP2PSmokeAuthController(idpUrl).login({ storageServerUrl });
+      setSession(nextSession);
+      applyLocalSpUrl(nextSession);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -145,15 +153,15 @@ export function P2PSmokeScreen({
       </Text>
 
       <Field
-        label="Local SP URL"
+        label="Local SP server root"
         onChangeText={updateLocalSpUrl}
-        placeholder="https://node-0000.undefineds.co/alice/"
+        placeholder="https://node-0000.undefineds.co/"
         value={localSpUrl}
       />
       <Pressable
         accessibilityRole="button"
         disabled={isLoggingIn || isRunning}
-        onPress={applyLocalSpUrl}
+        onPress={() => applyLocalSpUrl()}
         style={[styles.secondaryButton, (isLoggingIn || isRunning) && styles.buttonDisabled]}>
         <Text style={styles.secondaryButtonText}>Apply local SP</Text>
       </Pressable>

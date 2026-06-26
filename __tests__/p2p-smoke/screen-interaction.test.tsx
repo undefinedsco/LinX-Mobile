@@ -64,27 +64,27 @@ test('applying a local SP gives visible feedback and keeps cloud IDP login', asy
         initialSmokeDefaults={{
           idpUrl: 'https://id.undefineds.co/',
           storageUrl: 'https://node-0000.undefineds.co/alice/',
-          localSpUrl: 'https://node-0000.undefineds.co/alice/',
+          localSpUrl: 'https://node-0000.undefineds.co/',
         }}
       />,
     );
   });
 
   const localSpInput = renderer!.root.findByProps({
-    placeholder: 'https://node-0000.undefineds.co/alice/',
+    placeholder: 'https://node-0000.undefineds.co/',
   });
   await ReactTestRenderer.act(async () => {
-    localSpInput.props.onChangeText('https://node-0000.undefineds.co/bob/nested');
+    localSpInput.props.onChangeText('https://node-0001.undefineds.co/');
   });
 
   await ReactTestRenderer.act(async () => {
-    findButtonByText(renderer!, 'Apply local SP')!.props.onPress();
+    findButtonByText(renderer!, 'Apply local SP')!.props.onPress({ nativeEvent: {} });
   });
 
   expect(renderer!.root.findByProps({
-    children: 'Local SP applied: https://node-0000.undefineds.co/bob/',
+    children: 'Local SP applied: https://node-0001.undefineds.co/',
   })).toBeTruthy();
-  expect(findInputByValue(renderer!, 'https://node-0000.undefineds.co/bob/')).toBeTruthy();
+  expect(findInputByValue(renderer!, 'https://node-0001.undefineds.co/alice/')).toBeTruthy();
   expect(findInputByValue(renderer!, 'https://id.undefineds.co/')).toBeTruthy();
   expect(renderer!.root.findByProps({ children: 'Using current chat login' })).toBeTruthy();
 });
@@ -102,7 +102,7 @@ test('running smoke after applying local SP uses cloud token against local stora
         initialSmokeDefaults={{
           idpUrl: 'https://id.undefineds.co/',
           storageUrl: 'https://node-0000.undefineds.co/alice/',
-          localSpUrl: 'https://node-0000.undefineds.co/alice/',
+          localSpUrl: 'https://node-0000.undefineds.co/',
         }}
       />,
     );
@@ -110,8 +110,8 @@ test('running smoke after applying local SP uses cloud token against local stora
 
   await ReactTestRenderer.act(async () => {
     renderer!.root
-      .findByProps({ placeholder: 'https://node-0000.undefineds.co/alice/' })
-      .props.onChangeText('https://node-0000.undefineds.co/bob/');
+      .findByProps({ placeholder: 'https://node-0000.undefineds.co/' })
+      .props.onChangeText('https://node-0001.undefineds.co/');
   });
   await ReactTestRenderer.act(async () => {
     findButtonByText(renderer!, 'Apply local SP')!.props.onPress();
@@ -122,7 +122,7 @@ test('running smoke after applying local SP uses cloud token against local stora
 
   expect(mockedRunP2PSmoke).toHaveBeenCalledWith(expect.objectContaining({
     idpUrl: 'https://id.undefineds.co/',
-    storageUrl: 'https://node-0000.undefineds.co/bob/',
+    storageUrl: 'https://node-0001.undefineds.co/alice/',
     token: 'cloud-access-token',
   }));
 });

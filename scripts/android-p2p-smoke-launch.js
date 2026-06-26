@@ -152,7 +152,7 @@ function parseArgs(argv) {
     nodeId: process.env.XPOD_P2P_SMOKE_NODE_ID,
     updateManifestUrl: process.env.LINX_UPDATE_MANIFEST_URL || process.env.XPOD_LINX_UPDATE_MANIFEST_URL,
     clientId: process.env.XPOD_P2P_SMOKE_CLIENT_ID || `phone-${Math.floor(Date.now() / 1000)}`,
-    resourcePath: process.env.XPOD_P2P_SMOKE_RESOURCE_PATH || '/alice/.data/linx-mobile-p2p-smoke.txt',
+    resourcePath: process.env.XPOD_P2P_SMOKE_RESOURCE_PATH || '.data/linx-mobile-p2p-smoke.txt',
     transport: process.env.XPOD_P2P_ANDROID_TRANSPORT || process.env.XPOD_P2P_DEVICE_TRANSPORT || 'adb',
     adbServerPort: process.env.ANDROID_ADB_SERVER_PORT,
     hdcTarget: process.env.HDC_TARGET || process.env.OHOS_HDC_TARGET || process.env.XPOD_HDC_TARGET,
@@ -347,13 +347,13 @@ function usage() {
 Builds, installs, and launches the Android LinX P2P Smoke package with verifier fields prefilled.
 
 Options:
-  --local-sp-url <url>     Prefill Local SP URL, e.g. https://node-0000.undefineds.co/alice/
+  --local-sp-url <url>     Prefill Local SP server root, e.g. https://node-0000.undefineds.co/
   --idp-url <url>          Default: ${'https://id.undefineds.co/'}
   --storage-url <url>      Default: ${'https://node-0000.undefineds.co/'}
   --api-base-url <url>     Optional explicit Xpod API base URL.
   --node-id <id>           Optional explicit node id.
   --client-id <id>         Default: phone-<timestamp>
-  --resource-path <path>   Default: /alice/.data/linx-mobile-p2p-smoke.txt
+  --resource-path <path>   Default: .data/linx-mobile-p2p-smoke.txt
   --update-manifest-url <url> Optional update manifest URL for automatic upgrade prompt.
   --transport <adb|hdc>    Device transport. Default: adb.
   --adb <path>             adb executable. Default: adb

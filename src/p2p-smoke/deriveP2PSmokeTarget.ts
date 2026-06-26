@@ -1,9 +1,13 @@
+import { resolvePodBaseUrl } from '../linx/pod/paths';
+import { ensureTrailingSlash } from '../linx/utils';
+
 const DEFAULT_SMOKE_RESOURCE_PATH = '/.data/linx-mobile-p2p-smoke.txt';
 export const DEFAULT_SMOKE_RESOURCE_PATH_INPUT = '.data/linx-mobile-p2p-smoke.txt';
 
 export interface P2PSmokeDerivedDefaults {
   idpUrl: string;
   storageUrl: string;
+  localSpUrl: string;
   apiBaseUrl: string;
   nodeId: string;
   resourcePath: string;
@@ -28,16 +32,27 @@ export function deriveNodeIdFromStorageUrl(storageUrl: string): string {
   return firstLabel;
 }
 
-export function deriveP2PSmokeDefaultsFromLocalStorageUrl(
-  localStorageUrl: string,
+export function deriveP2PSmokeDefaultsFromLocalSpServerRoot(
+  input: {
+    localSpServerUrl: string;
+    webId?: string;
+  },
 ): P2PSmokeDerivedDefaults {
-  const storage = parseLocalStorageUrl(localStorageUrl);
+  const localSpUrl = parseLocalSpServerRoot(input.localSpServerUrl);
   const idpUrl = 'https://id.undefineds.co/';
+  const storageUrl = input.webId
+    ? resolvePodBaseUrl({
+      webId: input.webId,
+      storageServerUrl: localSpUrl,
+    })
+    : localSpUrl;
+
   return {
     idpUrl,
-    storageUrl: storage.url,
+    storageUrl,
+    localSpUrl,
     apiBaseUrl: deriveApiBaseUrlFromIdp(idpUrl),
-    nodeId: deriveNodeIdFromStorageUrl(storage.url),
+    nodeId: deriveNodeIdFromStorageUrl(localSpUrl),
     resourcePath: DEFAULT_SMOKE_RESOURCE_PATH_INPUT,
   };
 }
@@ -60,27 +75,24 @@ export function resolveSmokeResourceUrl(input: {
   return `${storage.origin}${normalizedPath}`;
 }
 
-export function ensureTrailingSlash(value: string): string {
-  return value.endsWith('/') ? value : `${value}/`;
-}
-
-function parseLocalStorageUrl(value: string): { url: string } {
+function parseLocalSpServerRoot(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new Error('Local SP URL is required.');
+    throw new Error('Local SP server root is required.');
   }
   if (!/^https?:\/\//i.test(trimmed)) {
     throw new Error(
-      'Local SP URL must be an absolute http(s) URL like https://node-0000.undefineds.co/alice/; user-in-host shorthand is not supported.',
+      'Local SP server root must be an absolute http(s) URL like https://node-0000.undefineds.co/; user-in-host shorthand is not supported.',
     );
   }
   const parsed = new URL(trimmed);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Local SP URL must be an absolute http(s) URL.');
+    throw new Error('Local SP server root must be an absolute http(s) URL.');
   }
-  const pathSegments = parsed.pathname.split('/').filter(Boolean);
-  if (pathSegments.length === 0) {
-    throw new Error('Local SP URL must include the pod owner as the first path segment.');
+  if (parsed.pathname !== '/' && parsed.pathname !== '') {
+    throw new Error(
+      'SP server root must not include a pod path; pod base is resolved from WebID after login.',
+    );
   }
-  return { url: `${parsed.protocol}//${parsed.host}/${pathSegments[0]}/` };
+  return ensureTrailingSlash(`${parsed.protocol}//${parsed.host}/`);
 }
